@@ -31,4 +31,8 @@ export const config = {
     /** 20ms frame at 48kHz stereo */
     opusFrameSize: 960,
   },
+  /** Dashboard UI for director suggestion cards */
+  dashboard: {
+    port: parseInt(process.env.DASHBOARD_PORT || '8765', 10),
+  },
 };

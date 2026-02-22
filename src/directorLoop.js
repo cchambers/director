@@ -6,6 +6,7 @@
 
 import { getRecentForDirector, reset as resetLog } from './conversationLog.js';
 import { getDirectorSuggestion } from './modditClient.js';
+import { pushSuggestion } from './dashboard.js';
 import { config } from './config.js';
 
 /**
@@ -24,6 +25,7 @@ export async function requestDirectorSuggestion() {
   resetLog();
   if (suggestion) {
     console.log('\n🎬 Director:', suggestion, '\n');
+    pushSuggestion(suggestion);
   }
   return { suggestion: suggestion ?? null };
 }

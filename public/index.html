@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Director — Podcast Director</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;1,9..40,400&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0f0f11;
+      --surface: #18181b;
+      --border: #27272a;
+      --text: #fafafa;
+      --muted: #a1a1aa;
+      --accent: #a78bfa;
+      --accent-dim: rgba(167, 139, 250, 0.15);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: 'DM Sans', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+    .header {
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+    .header .badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      padding: 0.2rem 0.5rem;
+      background: var(--accent-dim);
+      color: var(--accent);
+      border-radius: 4px;
+    }
+    .container {
+      max-width: 42rem;
+      margin: 0 auto;
+      padding: 1.5rem;
+    }
+    .cards {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem 1.5rem;
+      animation: cardIn 0.35s ease-out;
+    }
+    @keyframes cardIn {
+      from {
+        opacity: 0;
+        transform: translateY(-8px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+    }
+    .card-header .icon {
+      width: 24px;
+      height: 24px;
+      background: var(--accent-dim);
+      color: var(--accent);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.85rem;
+    }
+    .card-header .time {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+    .card-body {
+      font-size: 1rem;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .empty {
+      text-align: center;
+      padding: 3rem 1.5rem;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    .empty p { margin: 0; }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <h1>Director</h1>
+    <span class="badge">LIVE</span>
+  </header>
+  <main class="container">
+    <div class="cards" id="cards"></div>
+    <div class="empty" id="empty">Waiting for suggestions… Use /suggest or say a trigger phrase in voice.</div>
+  </main>
+  <script>
+    const cardsEl = document.getElementById('cards');
+    const emptyEl = document.getElementById('empty');
+
+    function formatTime(ms) {
+      const d = new Date(ms);
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    function addCard(text, at) {
+      emptyEl.hidden = true;
+      const card = document.createElement('article');
+      card.className = 'card';
+      card.innerHTML = `
+        <div class="card-header">
+          <span class="icon">🎬</span>
+          <span class="time">${formatTime(at)}</span>
+        </div>
+        <div class="card-body">${escapeHtml(text)}</div>
+      `;
+      cardsEl.insertBefore(card, cardsEl.firstChild);
+    }
+
+    function escapeHtml(s) {
+      const div = document.createElement('div');
+      div.textContent = s;
+      return div.innerHTML;
+    }
+
+    const ev = new EventSource('/events');
+    ev.onmessage = (e) => {
+      try {
+        const { text, at } = JSON.parse(e.data);
+        if (text) addCard(text, at);
+      } catch (_) {}
+    };
+    ev.onerror = () => {
+      ev.close();
+      setTimeout(() => location.reload(), 2000);
+    };
+  </script>
+</body>
+</html>

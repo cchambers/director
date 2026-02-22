@@ -13,6 +13,7 @@ import { config } from './config.js';
 import { setupVoiceReceive } from './voiceHandler.js';
 import { startDirectorLoop, requestDirectorSuggestion } from './directorLoop.js';
 import { startSessionLog } from './conversationLog.js';
+import { startDashboard } from './dashboard.js';
 
 const { discord } = config;
 
@@ -33,6 +34,7 @@ const client = new Client({
 client.once(Events.ClientReady, (c) => {
   console.log(`Logged in as ${c.user.tag}`);
   console.log('Use /join in a server where the bot is in a voice channel, or message the bot: "join"');
+  startDashboard();
 });
 
 client.on(Events.MessageCreate, async (message) => {
