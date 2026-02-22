@@ -28,6 +28,10 @@ const commands = [
     name: 'join',
     description: 'Make the bot join your voice channel and start the podcast director',
   },
+  {
+    name: 'suggest',
+    description: 'Send current conversation to Moddit and get a director suggestion',
+  },
 ];
 
 const rest = new REST().setToken(token);

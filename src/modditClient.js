@@ -12,15 +12,25 @@ const { baseUrl, sessionId } = config.moddit;
  * @returns {Promise<{ suggestion?: string, error?: string }>}
  */
 export async function getDirectorSuggestion(messages) {
-  const url = `${baseUrl}/${sessionId}`;
+  const url = `${baseUrl}`;
+
+  const context = messages.map(m => `${m.speaker}: ${m.text}`).join('\n');
+  console.log('Sending context to Moddit API:\n', context);
+  const inp = JSON.stringify({
+        apiKey: process.env.MODDIT_API_KEY,
+        mod: process.env.MODDIT_SESSION_ID,
+        input: `Latest conversation context -- Khi is the host you are assisting:\n
+\`\`\`
+${context}
+\`\`\`        
+`,
+        store: true
+      })
   try {
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        apiKey: process.env.MODDIT_API_KEY,
-        body: messages 
-      }),
+      body: inp,
     });
     if (!res.ok) {
       const text = await res.text();

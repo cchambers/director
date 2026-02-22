@@ -3,6 +3,13 @@ import 'dotenv/config';
 export const config = {
   discord: {
     token: process.env.DISCORD_TOKEN,
+    /** Discord user ID of the host (for phrase trigger and optional checks). Optional. */
+    hostUserId: process.env.DISCORD_HOST_USER_ID || null,
+    /** Comma-separated phrases the host can say to trigger a director suggestion (e.g. "yeah,okay,go ahead"). */
+    directorTriggerPhrases: (process.env.DISCORD_DIRECTOR_TRIGGER_PHRASES || 'yeah,okay,go ahead')
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
   },
   moddit: {
     baseUrl: process.env.MODDIT_API_URL || 'https://api.moddit.io',
@@ -14,8 +21,8 @@ export const config = {
   },
   deepgram: {
     apiKey: process.env.DEEPGRAM_API_KEY,
-    /** Only transcribe if we have at least this much audio (ms) to avoid noise */
-    minAudioMs: parseInt(process.env.DEEPGRAM_MIN_AUDIO_MS || '1500', 10),
+    /** Min audio length (ms) before sending to Deepgram. Lower = catch short cues like "yeah" (set via DEEPGRAM_MIN_AUDIO_MS). */
+    minAudioMs: parseInt(process.env.DEEPGRAM_MIN_AUDIO_MS || '500', 10),
   },
   /** Discord Opus is 48kHz stereo; prism Decoder outputs 16-bit PCM */
   audio: {
