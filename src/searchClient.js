@@ -12,15 +12,16 @@ const TAVILY_SEARCH_URL = 'https://api.tavily.com/search';
 const DEFAULT_MAX_RESULTS = 5;
 
 /**
- * Fetch search snippets for a claim/query. Returns a single string suitable
- * for appending to the fact-check prompt.
+ * Fetch search snippets for a claim/query. Returns context text (numbered for
+ * mod citations [1], [2], ...) and a sources list for the UI.
  * @param {string} query - Claim text or short search query
  * @param {{ maxResults?: number }} options
- * @returns {Promise<string>} Formatted context or '' if no key or error
+ * @returns {Promise<{ contextText: string, sources: Array<{ title: string, url: string }> }>}
  */
 export async function getSearchContext(query, options = {}) {
+  const empty = { contextText: '', sources: [] };
   const apiKey = process.env.TAVILY_API_KEY;
-  if (!apiKey?.trim()) return '';
+  if (!apiKey?.trim()) return empty;
 
   const maxResults = Math.min(20, Math.max(1, options.maxResults ?? DEFAULT_MAX_RESULTS));
   const body = JSON.stringify({
@@ -39,20 +40,29 @@ export async function getSearchContext(query, options = {}) {
     });
     if (!res.ok) {
       console.warn('Tavily search failed:', res.status, await res.text());
-      return '';
+      return empty;
     }
     const data = await res.json().catch(() => ({}));
     const results = Array.isArray(data.results) ? data.results : [];
-    if (results.length === 0) return '';
+    if (results.length === 0) return empty;
+
+    const sources = results.map((r) => ({
+      title: (r.title && String(r.title).trim()) || 'Source',
+      url: (r.url && String(r.url).trim()) || '',
+    }));
 
     const lines = results.map((r, i) => {
-      const title = r.title ? `[${i + 1}] ${String(r.title).trim()}` : '';
+      const n = i + 1;
+      const title = r.title ? String(r.title).trim() : '';
+      const url = r.url ? String(r.url).trim() : '';
       const content = r.content ? String(r.content).trim() : '';
-      return title ? `${title}\n${content}` : content;
-    }).filter(Boolean);
-    return lines.join('\n\n');
+      const head = `Source [${n}]: ${title || 'Source ' + n}${url ? '\nURL: ' + url : ''}`;
+      return content ? `${head}\n${content}` : head;
+    });
+    const contextText = lines.join('\n\n');
+    return { contextText, sources };
   } catch (err) {
     console.warn('Search context error:', err.message);
-    return '';
+    return empty;
   }
 }

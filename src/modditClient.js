@@ -138,10 +138,12 @@ export async function getClaimExtraction(messages) {
 export async function getFactCheckClaim(claim, options = {}) {
   const { getSearchContext } = await import('./searchClient.js');
   let input = `Fact-check the following claim. Respond with your verdict (TRUE, FALSE, or SUBJECTIVE) and a brief explanation.\n\nClaim: ${claim}`;
+  let sources = [];
   if (options.withSearch) {
-    const searchContext = await getSearchContext(claim);
-    if (searchContext) {
-      input = `Fact-check the following claim. Use the search context below to ground your answer. Respond with your verdict (TRUE, FALSE, or SUBJECTIVE) and a brief explanation.\n\nClaim: ${claim}\n\nSearch context:\n${searchContext}`;
+    const { contextText, sources: s } = await getSearchContext(claim);
+    if (contextText) {
+      sources = s;
+      input = `Fact-check the following claim. Use the search context below to ground your answer. Cite sources as [1], [2], etc. when relevant. Respond with your verdict (TRUE, FALSE, or SUBJECTIVE) and a brief explanation.\n\nClaim: ${claim}\n\nSearch context:\n${contextText}`;
     }
   }
   const url = `${baseUrl}`;
@@ -168,7 +170,7 @@ export async function getFactCheckClaim(claim, options = {}) {
       const m = result.match(/\b(TRUE|FALSE|SUBJECTIVE)\b/i);
       if (m) verdict = m[1].toUpperCase();
     }
-    return { result, verdict };
+    return { result, verdict, sources };
   } catch (err) {
     return { error: err.message };
   }

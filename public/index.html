@@ -61,8 +61,10 @@
     .column {
       flex: 1;
       min-width: 0;
+      min-height: 0;
       display: flex;
       flex-direction: column;
+      overflow: hidden;
       border-right: 1px solid var(--border);
     }
     .column:last-child { border-right: none; }
@@ -76,9 +78,11 @@
     }
     .column-scroll {
       flex: 1;
-      overflow-y: auto;
-      padding: 1rem;
       min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 1rem;
+      -webkit-overflow-scrolling: touch;
     }
     .cards {
       display: flex;
@@ -148,6 +152,10 @@
     .claim-result .fact-box-header strong { color: var(--text); }
     .claim-result .details-body { margin-top: 0.5rem; font-size: 0.9rem; white-space: pre-wrap; }
     .claim-result .details-body p { margin: 0 0 0.5em; }
+    .claim-sources { margin-top: 0.75rem; font-size: 0.8rem; color: var(--muted); }
+    .claim-sources ul { margin: 0.25rem 0 0; padding-left: 1.25rem; }
+    .claim-sources a { color: var(--accent); text-decoration: none; }
+    .claim-sources a:hover { text-decoration: underline; }
     .actions {
       display: flex;
       gap: 0.5rem;
@@ -279,7 +287,7 @@
           <div><strong>Speaker:</strong> ${speakerLabel}</div>
           <div><strong>Verbatim claim:</strong> ${verbatimEscaped}</div>
         </div>
-        <div class="claim-meta">
+        <div class="claim-meta claim-actions">
           <span class="claim-type">${escapeHtml(type)}</span>
           <button type="button" class="btn claim-check-btn" title="Fact-check without search">Check</button>
           <button type="button" class="btn claim-check-search-btn" title="Fact-check with web search" aria-label="Check with search">🔍</button>
@@ -288,6 +296,7 @@
       `;
       const checkBtn = card.querySelector('.claim-check-btn');
       const searchBtn = card.querySelector('.claim-check-search-btn');
+      const actionsEl = card.querySelector('.claim-actions');
       const resultEl = card.querySelector('.claim-result');
       async function runCheck(withSearch) {
         const btn = withSearch ? searchBtn : checkBtn;
@@ -295,7 +304,7 @@
         btn.disabled = true;
         checkBtn.disabled = true;
         searchBtn.disabled = true;
-        btn.textContent = withSearch ? 'Searching…' : 'Checking…';
+        btn.textContent = withSearch ? 'Checking with search…' : 'Checking…';
         try {
           const res = await fetch('/claims/check', {
             method: 'POST',
@@ -311,22 +320,32 @@
             if (verdictClass) card.classList.add('verdict-' + verdictClass);
             const badge = verdictClass ? `<span class="verdict-badge ${verdictClass}">${(data.verdict || '').toUpperCase()}</span>` : '';
             const bodyHtml = markdownToHtml(data.result || '');
+            let sourcesHtml = '';
+            if (data.sources && data.sources.length) {
+              sourcesHtml = '<div class="claim-sources"><strong>Sources</strong><ul>' + data.sources.map((s, i) => {
+                const title = escapeHtml((s.title || 'Source ' + (i + 1)).slice(0, 80));
+                const url = (s.url && s.url.startsWith('http')) ? escapeHtml(s.url) : '';
+                return url ? `<li><a href="${url}" target="_blank" rel="noopener">[${i + 1}] ${title}</a></li>` : `<li>[${i + 1}] ${title}</li>`;
+              }).join('') + '</ul></div>';
+            }
             resultEl.innerHTML = `
               <div class="claim-meta">${badge}</div>
               <details open>
                 <summary>Fact-check result</summary>
                 <div class="details-body">${bodyHtml || escapeHtml(data.result || '')}</div>
               </details>
+              ${sourcesHtml}
             `;
+            actionsEl.remove();
           }
           resultEl.style.display = 'block';
         } catch (err) {
           resultEl.innerHTML = `<details open><summary>Error</summary><div class="details-body">${escapeHtml(err.message)}</div></details>`;
           resultEl.style.display = 'block';
+          checkBtn.disabled = false;
+          searchBtn.disabled = false;
+          btn.textContent = origLabel;
         }
-        checkBtn.disabled = false;
-        searchBtn.disabled = false;
-        btn.textContent = origLabel;
       }
       checkBtn.addEventListener('click', () => runCheck(false));
       searchBtn.addEventListener('click', () => runCheck(true));

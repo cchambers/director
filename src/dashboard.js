@@ -152,9 +152,9 @@ const server = http.createServer((req, res) => {
         return;
       }
       const withSearch = !!payload.withSearch;
-      getFactCheckClaim(claim.trim(), { withSearch }).then(({ result, verdict, error }) => {
+      getFactCheckClaim(claim.trim(), { withSearch }).then(({ result, verdict, error, sources }) => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ result: result ?? null, verdict: verdict ?? null, error: error ?? null }));
+        res.end(JSON.stringify({ result: result ?? null, verdict: verdict ?? null, error: error ?? null, sources: sources ?? [] }));
       });
     });
     return;
