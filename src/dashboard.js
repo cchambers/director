@@ -8,8 +8,8 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { config } from './config.js';
-import { getRecentForDirector } from './conversationLog.js';
-import { getFactCheck } from './modditClient.js';
+import { getRecentForDirector, getRecentForClaimExtraction, resetClaimBuffer, reset as resetLog } from './conversationLog.js';
+import { getFactCheck, getClaimExtraction, getFactCheckClaim, getDirectorSuggestion } from './modditClient.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const { port } = config.dashboard;
@@ -81,6 +81,26 @@ const server = http.createServer((req, res) => {
     req.on('close', () => sseClients.delete(res));
     return;
   }
+  if (url === '/suggest' && req.method === 'POST') {
+    const messages = getRecentForDirector();
+    if (messages.length === 0) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'No conversation yet.' }));
+      return;
+    }
+    getDirectorSuggestion(messages).then(({ suggestion, error }) => {
+      if (error) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ suggestion: null, error }));
+        return;
+      }
+      resetLog();
+      if (suggestion) pushSuggestion(suggestion);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ suggestion: suggestion ?? null }));
+    });
+    return;
+  }
   if (url === '/fc' && req.method === 'POST') {
     let body = '';
     req.on('data', (chunk) => { body += chunk; });
@@ -95,6 +115,46 @@ const server = http.createServer((req, res) => {
         if (result) pushFactCheck(result);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ result: result ?? null, error: error ?? null }));
+      });
+    });
+    return;
+  }
+  if (url === '/claims/extract' && req.method === 'POST') {
+    const messages = getRecentForClaimExtraction();
+    if (messages.length === 0) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ claims: [], error: 'No conversation yet.' }));
+      return;
+    }
+    getClaimExtraction(messages).then(({ claims, error }) => {
+      resetClaimBuffer();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ claims: claims ?? [], error: error ?? null }));
+    });
+    return;
+  }
+  if (url === '/claims/check' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let payload;
+      try {
+        payload = body ? JSON.parse(body) : {};
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        return;
+      }
+      const claim = payload.claim;
+      if (!claim || typeof claim !== 'string') {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Missing claim' }));
+        return;
+      }
+      const withSearch = !!payload.withSearch;
+      getFactCheckClaim(claim.trim(), { withSearch }).then(({ result, verdict, error }) => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ result: result ?? null, verdict: verdict ?? null, error: error ?? null }));
       });
     });
     return;

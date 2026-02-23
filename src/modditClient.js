@@ -10,6 +10,9 @@ const { baseUrl, sessionId } = config.moddit;
 /** Moddit model ID for fact-checking. */
 const FACTCHECK_MOD_ID = 'a274a291-1581-43d0-a526-315c8dccc8de';
 
+/** Moddit model ID for claim extraction (outputs JSON array of { claim, type }). */
+const CLAIM_EXTRACTOR_MOD_ID = '657f34c9-0afe-4455-a95c-76e4cc200787';
+
 /**
  * @param {Array<{ speaker: string, text: string, timestamp?: string }>} messages - Recent conversation
  * @returns {Promise<{ suggestion?: string, error?: string }>}
@@ -22,7 +25,7 @@ export async function getDirectorSuggestion(messages) {
   const inp = JSON.stringify({
         apiKey: process.env.MODDIT_API_KEY,
         mod: process.env.MODDIT_SESSION_ID,
-        input: `Latest conversation context -- Khi is the host you are assisting:\n
+        input: `Latest conversation context: \n
 \`\`\`
 ${context}
 \`\`\`        
@@ -72,6 +75,100 @@ export async function getFactCheck(messages) {
     }
     const data = await res.json().catch(() => ({}));
     return { result: data.response ?? null };
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
+/**
+ * Extract fact-checkable claims from conversation. Expects JSON array of { claim, type, speaker }.
+ * @param {Array<{ speaker: string, text: string, timestamp?: string }>} messages - Recent conversation
+ * @returns {Promise<{ claims?: Array<{ claim: string, type: string, speaker?: string | null }>, error?: string }>}
+ */
+export async function getClaimExtraction(messages) {
+  const url = `${baseUrl}`;
+  const context = messages.map((m) => `${m.speaker}: ${m.text}`).join('\n');
+  const body = JSON.stringify({
+    apiKey: process.env.MODDIT_API_KEY,
+    mod: CLAIM_EXTRACTOR_MOD_ID,
+    input: `Extract fact-checkable claims from this conversation. Return a JSON array of objects with "claim", "type", and "speaker". Use "claim" for the exact verbatim claim text, "type" (e.g. predictive, causal, statistical, attribution/statistical), and "speaker" for the name of who said it (from the conversation). No other text.\n\n\`\`\`\n${context}\n\`\`\``,
+    store: true,
+  });
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      return { error: `HTTP ${res.status}: ${text}` };
+    }
+    const data = await res.json().catch(() => ({}));
+    const raw = data.response ?? '';
+    const str = typeof raw === 'string' ? raw : JSON.stringify(raw);
+    let list;
+    try {
+      list = JSON.parse(str);
+    } catch {
+      const match = str.match(/\[[\s\S]*\]/);
+      list = match ? JSON.parse(match[0]) : [];
+    }
+    const claims = Array.isArray(list)
+      ? list
+          .filter((c) => c && typeof c.claim === 'string')
+          .map((c) => ({
+            claim: String(c.claim).trim(),
+            type: String(c.type || '').trim() || 'claim',
+            speaker: c.speaker != null ? String(c.speaker).trim() : null,
+          }))
+      : [];
+    return { claims };
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
+/**
+ * Fact-check a single claim. Returns result and inferred verdict (TRUE/FALSE/SUBJECTIVE).
+ * @param {string} claim - The claim text to fact-check
+ * @param {{ withSearch?: boolean }} options - If withSearch, fetch web context (Tavily) and include in prompt
+ * @returns {Promise<{ result?: string, verdict?: 'TRUE'|'FALSE'|'SUBJECTIVE', error?: string }>}
+ */
+export async function getFactCheckClaim(claim, options = {}) {
+  const { getSearchContext } = await import('./searchClient.js');
+  let input = `Fact-check the following claim. Respond with your verdict (TRUE, FALSE, or SUBJECTIVE) and a brief explanation.\n\nClaim: ${claim}`;
+  if (options.withSearch) {
+    const searchContext = await getSearchContext(claim);
+    if (searchContext) {
+      input = `Fact-check the following claim. Use the search context below to ground your answer. Respond with your verdict (TRUE, FALSE, or SUBJECTIVE) and a brief explanation.\n\nClaim: ${claim}\n\nSearch context:\n${searchContext}`;
+    }
+  }
+  const url = `${baseUrl}`;
+  const body = JSON.stringify({
+    apiKey: process.env.MODDIT_API_KEY,
+    mod: FACTCHECK_MOD_ID,
+    input,
+    store: true,
+  });
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      return { error: `HTTP ${res.status}: ${text}` };
+    }
+    const data = await res.json().catch(() => ({}));
+    const result = data.response ?? null;
+    let verdict = null;
+    if (result) {
+      const m = result.match(/\b(TRUE|FALSE|SUBJECTIVE)\b/i);
+      if (m) verdict = m[1].toUpperCase();
+    }
+    return { result, verdict };
   } catch (err) {
     return { error: err.message };
   }

@@ -120,6 +120,34 @@
       font-size: 0.85rem;
     }
     .card.factcheck .card-header .icon { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+    .claim-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem 1.25rem;
+      animation: cardIn 0.35s ease-out;
+    }
+    .claim-card.verdict-true { border-left: 3px solid #22c55e; }
+    .claim-card.verdict-false { border-left: 3px solid #ef4444; }
+    .claim-card.verdict-subjective { border-left: 3px solid #eab308; }
+    .claim-text { font-size: 0.95rem; margin-bottom: 0.25rem; }
+    .claim-context { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.5rem; }
+    .claim-context div { margin-bottom: 0.2rem; }
+    .claim-meta { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+    .claim-type {
+      font-size: 0.7rem; padding: 0.15rem 0.4rem; background: var(--border); color: var(--muted);
+      border-radius: 4px; font-family: 'JetBrains Mono', monospace;
+    }
+    .verdict-badge { font-size: 0.75rem; font-weight: 600; padding: 0.2rem 0.5rem; border-radius: 4px; }
+    .verdict-badge.true { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+    .verdict-badge.false { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+    .verdict-badge.subjective { background: rgba(234, 179, 8, 0.2); color: #eab308; }
+    .claim-result details { margin-top: 0.5rem; }
+    .claim-result summary { cursor: pointer; font-size: 0.875rem; color: var(--muted); }
+    .claim-result .fact-box-header { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.5rem; }
+    .claim-result .fact-box-header strong { color: var(--text); }
+    .claim-result .details-body { margin-top: 0.5rem; font-size: 0.9rem; white-space: pre-wrap; }
+    .claim-result .details-body p { margin: 0 0 0.5em; }
     .actions {
       display: flex;
       gap: 0.5rem;
@@ -141,6 +169,7 @@
     .btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .btn.primary { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
     .btn.primary:hover { background: rgba(167, 139, 250, 0.25); }
+    .claim-check-search-btn { padding: 0.35rem 0.5rem; font-size: 1rem; line-height: 1; }
     .card-header .time {
       font-family: 'JetBrains Mono', monospace;
       font-size: 0.75rem;
@@ -171,32 +200,38 @@
       <h1>Director</h1>
       <span class="badge">LIVE</span>
     </div>
-    <button type="button" class="btn primary" id="fcBtn">Fact check</button>
   </header>
   <main class="layout">
     <section class="column">
       <h2 class="column-title">Direction</h2>
       <div class="column-scroll" id="scrollDirector">
+        <div style="margin-bottom: 0.75rem;">
+          <button type="button" class="btn primary" id="suggestBtn">Suggestions</button>
+        </div>
         <div class="cards" id="cardsDirector"></div>
-        <div class="empty" id="emptyDirector">Use /suggest or say a trigger phrase in voice.</div>
+        <div class="empty" id="emptyDirector">Use &quot;Suggestions&quot; or /suggest or say a trigger phrase in voice.</div>
       </div>
     </section>
     <section class="column">
-      <h2 class="column-title">Fact checks</h2>
-      <div class="column-scroll" id="scrollFactcheck">
-        <div class="cards" id="cardsFactcheck"></div>
-        <div class="empty" id="emptyFactcheck">Click &quot;Fact check&quot; or use /fc in Discord.</div>
+      <h2 class="column-title">Claims</h2>
+      <div class="column-scroll" id="scrollClaims">
+        <div style="margin-bottom: 0.75rem;">
+          <button type="button" class="btn primary" id="refreshClaimsBtn">Refresh claims</button>
+        </div>
+        <div class="cards" id="cardsClaims"></div>
+        <div class="empty" id="emptyClaims">Click &quot;Refresh claims&quot; to extract claims from the conversation.</div>
       </div>
     </section>
   </main>
   <script>
     const cardsDirector = document.getElementById('cardsDirector');
-    const cardsFactcheck = document.getElementById('cardsFactcheck');
+    const cardsClaims = document.getElementById('cardsClaims');
     const scrollDirector = document.getElementById('scrollDirector');
-    const scrollFactcheck = document.getElementById('scrollFactcheck');
+    const scrollClaims = document.getElementById('scrollClaims');
     const emptyDirector = document.getElementById('emptyDirector');
-    const emptyFactcheck = document.getElementById('emptyFactcheck');
-    const fcBtn = document.getElementById('fcBtn');
+    const emptyClaims = document.getElementById('emptyClaims');
+    const refreshClaimsBtn = document.getElementById('refreshClaimsBtn');
+    const suggestBtn = document.getElementById('suggestBtn');
 
     function formatTime(ms) {
       const d = new Date(ms);
@@ -215,53 +250,128 @@
       return div.innerHTML;
     }
 
-    function addCard(text, at, type) {
-      const isFactcheck = type === 'factcheck';
-      const cardsEl = isFactcheck ? cardsFactcheck : cardsDirector;
-      const scrollEl = isFactcheck ? scrollFactcheck : scrollDirector;
-      const emptyEl = isFactcheck ? emptyFactcheck : emptyDirector;
-      emptyEl.hidden = true;
+    function addCard(text, at) {
+      emptyDirector.hidden = true;
       const card = document.createElement('article');
-      card.className = 'card' + (isFactcheck ? ' factcheck' : '');
-      const icon = isFactcheck ? '🔍' : '🎬';
+      card.className = 'card';
       const bodyHtml = markdownToHtml(text);
       card.innerHTML = `
         <div class="card-header">
-          <span class="icon">${icon}</span>
+          <span class="icon">🎬</span>
           <span class="time">${formatTime(at)}</span>
         </div>
         <div class="card-body">${bodyHtml || escapeHtml(text)}</div>
       `;
-      cardsEl.insertBefore(card, cardsEl.firstChild);
-      scrollEl.scrollTop = 0;
+      cardsDirector.insertBefore(card, cardsDirector.firstChild);
+      scrollDirector.scrollTop = 0;
     }
+
+    function addClaimCard(claim, type, speaker) {
+      emptyClaims.hidden = true;
+      const card = document.createElement('article');
+      card.className = 'claim-card';
+      card.dataset.claim = claim;
+      card.dataset.speaker = speaker || '';
+      const speakerLabel = speaker ? escapeHtml(speaker) : '—';
+      const verbatimEscaped = escapeHtml(claim);
+      card.innerHTML = `
+        <div class="claim-context">
+          <div><strong>Speaker:</strong> ${speakerLabel}</div>
+          <div><strong>Verbatim claim:</strong> ${verbatimEscaped}</div>
+        </div>
+        <div class="claim-meta">
+          <span class="claim-type">${escapeHtml(type)}</span>
+          <button type="button" class="btn claim-check-btn" title="Fact-check without search">Check</button>
+          <button type="button" class="btn claim-check-search-btn" title="Fact-check with web search" aria-label="Check with search">🔍</button>
+        </div>
+        <div class="claim-result" style="display: none;"></div>
+      `;
+      const checkBtn = card.querySelector('.claim-check-btn');
+      const searchBtn = card.querySelector('.claim-check-search-btn');
+      const resultEl = card.querySelector('.claim-result');
+      async function runCheck(withSearch) {
+        const btn = withSearch ? searchBtn : checkBtn;
+        const origLabel = btn.textContent;
+        btn.disabled = true;
+        checkBtn.disabled = true;
+        searchBtn.disabled = true;
+        btn.textContent = withSearch ? 'Searching…' : 'Checking…';
+        try {
+          const res = await fetch('/claims/check', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ claim, withSearch }),
+          });
+          const data = await res.json();
+          if (data.error) {
+            resultEl.innerHTML = `<details open><summary>Error</summary><div class="details-body">${escapeHtml(data.error)}</div></details>`;
+          } else {
+            const verdict = (data.verdict || '').toLowerCase();
+            const verdictClass = verdict === 'true' || verdict === 'false' || verdict === 'subjective' ? verdict : '';
+            if (verdictClass) card.classList.add('verdict-' + verdictClass);
+            const badge = verdictClass ? `<span class="verdict-badge ${verdictClass}">${(data.verdict || '').toUpperCase()}</span>` : '';
+            const bodyHtml = markdownToHtml(data.result || '');
+            resultEl.innerHTML = `
+              <div class="claim-meta">${badge}</div>
+              <details open>
+                <summary>Fact-check result</summary>
+                <div class="details-body">${bodyHtml || escapeHtml(data.result || '')}</div>
+              </details>
+            `;
+          }
+          resultEl.style.display = 'block';
+        } catch (err) {
+          resultEl.innerHTML = `<details open><summary>Error</summary><div class="details-body">${escapeHtml(err.message)}</div></details>`;
+          resultEl.style.display = 'block';
+        }
+        checkBtn.disabled = false;
+        searchBtn.disabled = false;
+        btn.textContent = origLabel;
+      }
+      checkBtn.addEventListener('click', () => runCheck(false));
+      searchBtn.addEventListener('click', () => runCheck(true));
+      cardsClaims.insertBefore(card, cardsClaims.firstChild);
+      scrollClaims.scrollTop = 0;
+    }
+
+    suggestBtn.addEventListener('click', async () => {
+      suggestBtn.disabled = true;
+      try {
+        await fetch('/suggest', { method: 'POST' });
+      } catch (_) {}
+      suggestBtn.disabled = false;
+    });
+
+    refreshClaimsBtn.addEventListener('click', async () => {
+      refreshClaimsBtn.disabled = true;
+      try {
+        const res = await fetch('/claims/extract', { method: 'POST' });
+        const data = await res.json();
+        if (data.error && !(data.claims && data.claims.length)) {
+          emptyClaims.textContent = data.error;
+          emptyClaims.hidden = false;
+        } else if (data.claims && data.claims.length) {
+          data.claims.forEach((c) => addClaimCard(c.claim, c.type, c.speaker));
+        }
+      } catch (err) {
+        emptyClaims.textContent = 'Request failed: ' + err.message;
+        emptyClaims.hidden = false;
+      }
+      refreshClaimsBtn.disabled = false;
+    });
 
     const ev = new EventSource('/events');
     ev.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
-        const type = data.type || 'suggestion';
-        if (data.text) addCard(data.text, data.at || Date.now(), type);
+        if (data.type !== 'suggestion' || !data.text) return;
+        addCard(data.text, data.at || Date.now());
       } catch (_) {}
     };
     ev.onerror = () => {
       ev.close();
       setTimeout(() => location.reload(), 2000);
     };
-
-    fcBtn.addEventListener('click', async () => {
-      fcBtn.disabled = true;
-      try {
-        const res = await fetch('/fc', { method: 'POST' });
-        const data = await res.json();
-        if (data.error && !data.result) {
-          addCard('Error: ' + data.error, Date.now(), 'factcheck');
-        }
-      } catch (err) {
-        addCard('Request failed: ' + err.message, Date.now(), 'factcheck');
-      }
-      fcBtn.disabled = false;
-    });
   </script>
 </body>
 </html>

@@ -13,6 +13,9 @@ const { contextMessages } = config.moddit;
 /** @type {Array<{ speaker: string, text: string, timestamp: number, userId?: string }>} */
 const log = [];
 
+/** Secondary buffer for claim extraction. Appended to with main log; cleared after extraction. */
+const claimBuffer = [];
+
 /** Current session log file path; set when startSessionLog() is called. */
 let sessionLogPath = null;
 /** Current session SRT caption file path. */
@@ -68,6 +71,12 @@ export function append(speaker, text, opts = {}) {
     timestamp: now,
     userId: opts.userId,
   });
+  claimBuffer.push({
+    speaker,
+    text: trimmed,
+    timestamp: now,
+    userId: opts.userId,
+  });
   console.log(`[${speaker}] ${trimmed}`);
   if (sessionLogPath) {
     const line = `${speaker}: ${trimmed}\n`; //[${new Date(now).toISOString()}] 
@@ -112,6 +121,21 @@ export function getRecentForDirector() {
     text,
     timestamp: new Date(timestamp).toISOString(),
   }));
+}
+
+/** Returns recent messages from the claim buffer (same shape as getRecentForDirector). */
+export function getRecentForClaimExtraction() {
+  const recent = claimBuffer.slice(-contextMessages);
+  return recent.map(({ speaker, text, timestamp }) => ({
+    speaker,
+    text,
+    timestamp: new Date(timestamp).toISOString(),
+  }));
+}
+
+/** Clear the claim buffer after extraction so next run only sees new conversation. */
+export function resetClaimBuffer() {
+  claimBuffer.length = 0;
 }
 
 export function getLog() {
