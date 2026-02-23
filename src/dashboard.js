@@ -1,6 +1,6 @@
 /**
- * Simple HTTP server that serves the dashboard UI and streams director suggestions via SSE.
- * Suggestions are shown as cards; new ones are pushed in real time.
+ * Simple HTTP server that serves the dashboard UI and streams director suggestions + fact-checks via SSE.
+ * Suggestions and fact-checks are shown as cards; new ones are pushed in real time.
  */
 
 import http from 'http';
@@ -8,15 +8,17 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { config } from './config.js';
+import { getRecentForDirector } from './conversationLog.js';
+import { getFactCheck } from './modditClient.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const { port } = config.dashboard;
 
-/** @type {Array<{ text: string, at: number }>} */
-const recentSuggestions = [];
-const MAX_SUGGESTIONS = 100;
+/** @type {Array<{ type: 'suggestion'|'factcheck', text: string, at: number }>} */
+const recentItems = [];
+const MAX_ITEMS = 100;
 
-/** SSE clients to broadcast new suggestions to */
+/** SSE clients to broadcast to */
 const sseClients = new Set();
 
 /**
@@ -25,9 +27,25 @@ const sseClients = new Set();
  */
 export function pushSuggestion(text) {
   if (!text?.trim()) return;
-  const entry = { text: text.trim(), at: Date.now() };
-  recentSuggestions.push(entry);
-  if (recentSuggestions.length > MAX_SUGGESTIONS) recentSuggestions.shift();
+  const entry = { type: 'suggestion', text: text.trim(), at: Date.now() };
+  recentItems.push(entry);
+  if (recentItems.length > MAX_ITEMS) recentItems.shift();
+  broadcast(entry);
+}
+
+/**
+ * Push a fact-check result to the dashboard (cards UI + SSE).
+ * @param {string} text - Fact-check result text
+ */
+export function pushFactCheck(text) {
+  if (!text?.trim()) return;
+  const entry = { type: 'factcheck', text: text.trim(), at: Date.now() };
+  recentItems.push(entry);
+  if (recentItems.length > MAX_ITEMS) recentItems.shift();
+  broadcast(entry);
+}
+
+function broadcast(entry) {
   const payload = JSON.stringify(entry);
   sseClients.forEach((res) => {
     try {
@@ -57,10 +75,28 @@ const server = http.createServer((req, res) => {
       Connection: 'keep-alive',
     });
     sseClients.add(res);
-    recentSuggestions.forEach((entry) => {
+    recentItems.forEach((entry) => {
       res.write(`data: ${JSON.stringify(entry)}\n\n`);
     });
     req.on('close', () => sseClients.delete(res));
+    return;
+  }
+  if (url === '/fc' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      const messages = getRecentForDirector();
+      if (messages.length === 0) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'No conversation yet to fact-check.' }));
+        return;
+      }
+      getFactCheck(messages).then(({ result, error }) => {
+        if (result) pushFactCheck(result);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ result: result ?? null, error: error ?? null }));
+      });
+    });
     return;
   }
   if (url === '/index.html' || url === '/') {

@@ -12,7 +12,8 @@ import { joinVoiceChannel } from '@discordjs/voice';
 import { config } from './config.js';
 import { setupVoiceReceive } from './voiceHandler.js';
 import { startDirectorLoop, requestDirectorSuggestion } from './directorLoop.js';
-import { startSessionLog } from './conversationLog.js';
+import { startSessionLog, getRecentForDirector } from './conversationLog.js';
+import { getFactCheck } from './modditClient.js';
 import { startDashboard } from './dashboard.js';
 
 const { discord } = config;
@@ -97,6 +98,23 @@ client.on(Events.InteractionCreate, async (interaction) => {
       : suggestion
         ? `🎬 **Director:**  \n\n ${suggestion}`
         : 'No suggestion this time.';
+    await interaction.editReply({ content });
+    return;
+  }
+
+  if (interaction.commandName === 'fc') {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const messages = getRecentForDirector();
+    if (messages.length === 0) {
+      await interaction.editReply({ content: 'No conversation yet to fact-check.' });
+      return;
+    }
+    const { result, error } = await getFactCheck(messages);
+    const content = error
+      ? `Fact-check: ${error}`
+      : result
+        ? `🔍 **Fact-check:**\n\n${result}`
+        : 'No fact-check result.';
     await interaction.editReply({ content });
   }
 });

@@ -32,6 +32,10 @@ const commands = [
     name: 'suggest',
     description: 'Send current conversation to Moddit and get a director suggestion',
   },
+  {
+    name: 'fc',
+    description: 'Fact-check the recent conversation using Moddit',
+  },
 ];
 
 const rest = new REST().setToken(token);
