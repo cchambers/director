@@ -12,6 +12,7 @@ import { config } from './config.js';
 const { elevenlabs } = config;
 import { getRecentForDirector, getRecentForClaimExtraction, resetClaimBuffer, reset as resetDirectorBuffer, getLog, onLogAppend } from './conversationLog.js';
 import { getFactCheck, getClaimExtraction, getFactCheckClaim, getDirectorSuggestion, getModeratorResponse } from './modditClient.js';
+import { getSearchContext } from './searchClient.js';
 import { speak as ttsSpeak } from './ttsPlayer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -207,6 +208,42 @@ const server = http.createServer((req, res) => {
         if (response) ttsSpeak(response, { voiceId: safeVoiceId || undefined }).catch((err) => console.warn('[TTS]', err.message));
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ response: response ?? null }));
+      });
+    });
+    return;
+  }
+  if (url === '/moderator/speak-with-search' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', async () => {
+      let payload;
+      try {
+        payload = body ? JSON.parse(body) : {};
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        return;
+      }
+      const text = typeof payload.text === 'string' ? payload.text.trim() : '';
+      const voiceId = typeof payload.voiceId === 'string' ? payload.voiceId.trim() : null;
+      const allowedIds = elevenlabs?.voices && typeof elevenlabs.voices === 'object'
+        ? new Set(Object.values(elevenlabs.voices))
+        : new Set();
+      const safeVoiceId = (voiceId && allowedIds.has(voiceId)) ? voiceId : null;
+      const input = text || 'No context provided.';
+      const { contextText, sources } = await getSearchContext(input);
+      const enrichedInput = contextText
+        ? `${input}\n\nSearch context:\n${contextText}`
+        : input;
+      getModeratorResponse(enrichedInput).then(({ response, error }) => {
+        if (error) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ response: null, error, sources: sources ?? [] }));
+          return;
+        }
+        if (response) ttsSpeak(response, { voiceId: safeVoiceId || undefined }).catch((err) => console.warn('[TTS]', err.message));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ response: response ?? null, sources: sources ?? [] }));
       });
     });
     return;

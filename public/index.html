@@ -102,6 +102,7 @@
       flex-direction: column;
       gap: 1rem;
     }
+    .card, .claim-card { position: relative; }
     .card {
       background: var(--surface);
       border: 1px solid var(--border);
@@ -109,6 +110,22 @@
       padding: 1.25rem 1.5rem;
       animation: cardIn 0.35s ease-out;
     }
+    .card-remove {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.5rem;
+      width: 1.5rem;
+      height: 1.5rem;
+      padding: 0;
+      border: none;
+      background: transparent;
+      color: var(--muted);
+      font-size: 1.1rem;
+      line-height: 1;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    .card-remove:hover { color: var(--text); background: var(--border); }
     @keyframes cardIn {
       from {
         opacity: 0;
@@ -276,6 +293,7 @@
   </main>
   <div id="contextMenu" role="menu">
     <button type="button" id="contextMenuSpeak" role="menuitem">Speak with moderator</button>
+    <button type="button" id="contextMenuSpeakSearch" role="menuitem">Speak with search</button>
   </div>
   <script>
     const cardsDirector = document.getElementById('cardsDirector');
@@ -292,6 +310,7 @@
     const refreshConversationBtn = document.getElementById('refreshConversationBtn');
     const contextMenu = document.getElementById('contextMenu');
     const contextMenuSpeak = document.getElementById('contextMenuSpeak');
+    const contextMenuSpeakSearch = document.getElementById('contextMenuSpeakSearch');
     const voiceSelect = document.getElementById('voiceSelect');
 
     fetch('/voices').then((r) => r.json()).then((data) => {
@@ -322,12 +341,17 @@
       card.className = 'card';
       const bodyHtml = markdownToHtml(text);
       card.innerHTML = `
+        <button type="button" class="card-remove" aria-label="Remove">×</button>
         <div class="card-header">
           <span class="icon">🎬</span>
           <span class="time">${formatTime(at)}</span>
         </div>
         <div class="card-body">${bodyHtml || escapeHtml(text)}</div>
       `;
+      card.querySelector('.card-remove').addEventListener('click', () => {
+        card.remove();
+        if (cardsDirector.children.length === 0) emptyDirector.hidden = false;
+      });
       cardsDirector.insertBefore(card, cardsDirector.firstChild);
       scrollDirector.scrollTop = 0;
     }
@@ -341,6 +365,7 @@
       const speakerLabel = speaker ? escapeHtml(speaker) : '—';
       const verbatimEscaped = escapeHtml(claim);
       card.innerHTML = `
+        <button type="button" class="card-remove" aria-label="Remove">×</button>
         <div class="claim-context">
           <div><strong>Speaker:</strong> ${speakerLabel}</div>
           <div><strong>Verbatim claim:</strong> ${verbatimEscaped}</div>
@@ -407,6 +432,10 @@
       }
       checkBtn.addEventListener('click', () => runCheck(false));
       searchBtn.addEventListener('click', () => runCheck(true));
+      card.querySelector('.card-remove').addEventListener('click', () => {
+        card.remove();
+        if (cardsClaims.children.length === 0) emptyClaims.hidden = false;
+      });
       cardsClaims.insertBefore(card, cardsClaims.firstChild);
       scrollClaims.scrollTop = 0;
     }
@@ -458,6 +487,7 @@
       const sel = window.getSelection();
       contextMenuSelection = (sel && sel.toString()) ? sel.toString().trim() : '';
       contextMenuSpeak.disabled = !contextMenuSelection;
+      contextMenuSpeakSearch.disabled = !contextMenuSelection;
       if (!contextMenu.classList.contains('show')) {
         contextMenu.classList.add('show');
         contextMenu.style.left = e.clientX + 'px';
@@ -486,6 +516,22 @@
       }).then((r) => r.json()).then((data) => {
         if (data.error) console.warn('Moderator speak:', data.error);
       }).finally(() => { contextMenuSpeak.disabled = false; });
+    });
+
+    contextMenuSpeakSearch.addEventListener('click', (e) => {
+      e.stopPropagation();
+      hideContextMenu();
+      if (!contextMenuSelection) return;
+      const text = contextMenuSelection;
+      contextMenuSpeakSearch.disabled = true;
+      const voiceId = voiceSelect.value || null;
+      fetch('/moderator/speak-with-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voiceId: voiceId || undefined }),
+      }).then((r) => r.json()).then((data) => {
+        if (data.error) console.warn('Speak with search:', data.error);
+      }).finally(() => { contextMenuSpeakSearch.disabled = false; });
     });
 
     let conversationColumnHover = false;
