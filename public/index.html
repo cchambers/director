@@ -23,6 +23,7 @@
     body {
       margin: 0;
       min-height: 100vh;
+      max-height: 100vh;
       display: flex;
       flex-direction: column;
       font-family: 'DM Sans', system-ui, sans-serif;
@@ -52,6 +53,15 @@
       color: var(--accent);
       border-radius: 4px;
     }
+    .header-voice { display: flex; align-items: center; gap: 0.5rem; }
+    .header-voice label { font-size: 0.8rem; color: var(--muted); }
+    .voice-select {
+      font-family: inherit; font-size: 0.875rem;
+      padding: 0.35rem 0.6rem;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--text);
+    }
+    .voice-select:focus { outline: none; border-color: var(--accent); }
     .layout {
       display: flex;
       flex: 1;
@@ -75,6 +85,9 @@
       font-weight: 600;
       color: var(--muted);
       border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
     }
     .column-scroll {
       flex: 1;
@@ -200,6 +213,22 @@
       font-size: 0.875rem;
     }
     .empty p { margin: 0; }
+    .log-entries { display: flex; flex-direction: column; gap: 0.5rem; }
+    .log-entry { font-size: 0.875rem; padding: 0.5rem 0.75rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+    .log-entry .log-speaker { font-weight: 600; color: var(--accent); margin-right: 0.5rem; }
+    .log-entry .log-text { color: var(--text); word-break: break-word; }
+    .log-entry .log-time { font-size: 0.7rem; color: var(--muted); font-family: 'JetBrains Mono', monospace; margin-top: 0.25rem; }
+    #contextMenu {
+      display: none; position: fixed; z-index: 1000; min-width: 180px; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); padding: 0.25rem 0;
+    }
+    #contextMenu.show { display: block; }
+    #contextMenu button {
+      display: block; width: 100%; text-align: left; font-family: inherit; font-size: 0.875rem; padding: 0.5rem 1rem;
+      background: none; border: none; color: var(--text); cursor: pointer;
+    }
+    #contextMenu button:hover { background: var(--border); }
+    #contextMenu button:disabled { opacity: 0.5; cursor: not-allowed; }
   </style>
 </head>
 <body>
@@ -208,29 +237,46 @@
       <h1>Director</h1>
       <span class="badge">LIVE</span>
     </div>
+    <div class="header-voice">
+      <label for="voiceSelect">Voice</label>
+      <select id="voiceSelect" class="voice-select" aria-label="TTS voice"></select>
+    </div>
   </header>
   <main class="layout">
     <section class="column">
-      <h2 class="column-title">Direction</h2>
+      <h2 class="column-title">
+        <span>Direction</span>
+        <button type="button" class="btn primary" id="suggestBtn">Suggestions</button>
+      </h2>
       <div class="column-scroll" id="scrollDirector">
-        <div style="margin-bottom: 0.75rem;">
-          <button type="button" class="btn primary" id="suggestBtn">Suggestions</button>
-        </div>
         <div class="cards" id="cardsDirector"></div>
         <div class="empty" id="emptyDirector">Use &quot;Suggestions&quot; or /suggest or say a trigger phrase in voice.</div>
       </div>
     </section>
     <section class="column">
-      <h2 class="column-title">Claims</h2>
+      <h2 class="column-title">
+        <span>Claims</span>
+        <button type="button" class="btn primary" id="refreshClaimsBtn">Refresh claims</button>
+      </h2>
       <div class="column-scroll" id="scrollClaims">
-        <div style="margin-bottom: 0.75rem;">
-          <button type="button" class="btn primary" id="refreshClaimsBtn">Refresh claims</button>
-        </div>
         <div class="cards" id="cardsClaims"></div>
         <div class="empty" id="emptyClaims">Click &quot;Refresh claims&quot; to extract claims from the conversation.</div>
       </div>
     </section>
+    <section class="column">
+      <h2 class="column-title">
+        <span>Conversation</span>
+        <button type="button" class="btn primary" id="refreshConversationBtn">Refresh</button>
+      </h2>
+      <div class="column-scroll" id="scrollConversation">
+        <div class="log-entries" id="logEntries"></div>
+        <div class="empty" id="emptyConversation">Conversation log will appear here once the bot is in voice. Click Refresh to update.</div>
+      </div>
+    </section>
   </main>
+  <div id="contextMenu" role="menu">
+    <button type="button" id="contextMenuSpeak" role="menuitem">Speak with moderator</button>
+  </div>
   <script>
     const cardsDirector = document.getElementById('cardsDirector');
     const cardsClaims = document.getElementById('cardsClaims');
@@ -240,6 +286,18 @@
     const emptyClaims = document.getElementById('emptyClaims');
     const refreshClaimsBtn = document.getElementById('refreshClaimsBtn');
     const suggestBtn = document.getElementById('suggestBtn');
+    const scrollConversation = document.getElementById('scrollConversation');
+    const logEntries = document.getElementById('logEntries');
+    const emptyConversation = document.getElementById('emptyConversation');
+    const refreshConversationBtn = document.getElementById('refreshConversationBtn');
+    const contextMenu = document.getElementById('contextMenu');
+    const contextMenuSpeak = document.getElementById('contextMenuSpeak');
+    const voiceSelect = document.getElementById('voiceSelect');
+
+    fetch('/voices').then((r) => r.json()).then((data) => {
+      const voices = data.voices || [];
+      voiceSelect.innerHTML = voices.map((v) => `<option value="${escapeHtml(v.id)}">${escapeHtml(v.name)}</option>`).join('');
+    }).catch(() => {});
 
     function formatTime(ms) {
       const d = new Date(ms);
@@ -379,10 +437,84 @@
       refreshClaimsBtn.disabled = false;
     });
 
+    function loadConversation() {
+      fetch('/conversation').then((r) => r.json()).then((data) => {
+        const entries = data.entries || [];
+        emptyConversation.hidden = entries.length > 0;
+        logEntries.innerHTML = entries.map((e) => `
+          <div class="log-entry" data-speaker="${escapeHtml(e.speaker || '')}" data-text="${escapeHtml((e.text || '').slice(0, 200))}">
+            <span class="log-speaker">${escapeHtml(e.speaker || '')}:</span><span class="log-text">${escapeHtml(e.text || '')}</span>
+            <div class="log-time">${formatTime(e.timestamp || 0)}</div>
+          </div>
+        `).join('');
+      }).catch(() => { emptyConversation.textContent = 'Failed to load conversation.'; emptyConversation.hidden = false; });
+    }
+    refreshConversationBtn.addEventListener('click', () => { refreshConversationBtn.disabled = true; loadConversation(); refreshConversationBtn.disabled = false; });
+    loadConversation();
+    // setInterval(loadConversation, 2000);
+
+    let contextMenuSelection = '';
+    document.addEventListener('contextmenu', (e) => {
+      const sel = window.getSelection();
+      contextMenuSelection = (sel && sel.toString()) ? sel.toString().trim() : '';
+      contextMenuSpeak.disabled = !contextMenuSelection;
+      if (!contextMenu.classList.contains('show')) {
+        contextMenu.classList.add('show');
+        contextMenu.style.left = e.clientX + 'px';
+        contextMenu.style.top = e.clientY + 'px';
+      } else {
+        contextMenu.style.left = e.clientX + 'px';
+        contextMenu.style.top = e.clientY + 'px';
+      }
+      e.preventDefault();
+    });
+    function hideContextMenu() { contextMenu.classList.remove('show'); }
+    document.addEventListener('click', hideContextMenu);
+    document.addEventListener('scroll', hideContextMenu, true);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideContextMenu(); });
+    contextMenuSpeak.addEventListener('click', (e) => {
+      e.stopPropagation();
+      hideContextMenu();
+      if (!contextMenuSelection) return;
+      const text = contextMenuSelection;
+      contextMenuSpeak.disabled = true;
+      const voiceId = voiceSelect.value || null;
+      fetch('/moderator/speak', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voiceId: voiceId || undefined }),
+      }).then((r) => r.json()).then((data) => {
+        if (data.error) console.warn('Moderator speak:', data.error);
+      }).finally(() => { contextMenuSpeak.disabled = false; });
+    });
+
+    let conversationColumnHover = false;
+    scrollConversation.addEventListener('mouseenter', () => { conversationColumnHover = true; });
+    scrollConversation.addEventListener('mouseleave', () => { conversationColumnHover = false; });
+
+    function appendLogEntry(entry) {
+      if (!entry || !entry.speaker) return;
+      emptyConversation.hidden = true;
+      const el = document.createElement('div');
+      el.className = 'log-entry';
+      el.dataset.speaker = escapeHtml(entry.speaker || '');
+      el.dataset.text = escapeHtml((entry.text || '').slice(0, 200));
+      el.innerHTML = `
+        <span class="log-speaker">${escapeHtml(entry.speaker || '')}:</span><span class="log-text">${escapeHtml(entry.text || '')}</span>
+        <div class="log-time">${formatTime(entry.timestamp || 0)}</div>
+      `;
+      logEntries.appendChild(el);
+      if (!conversationColumnHover) scrollConversation.scrollTop = 0;
+    }
+
     const ev = new EventSource('/events');
     ev.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
+        if (data.type === 'logEntry' && data.entry) {
+          appendLogEntry(data.entry);
+          return;
+        }
         if (data.type !== 'suggestion' || !data.text) return;
         addCard(data.text, data.at || Date.now());
       } catch (_) {}

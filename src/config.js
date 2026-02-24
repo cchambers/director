@@ -35,4 +35,22 @@ export const config = {
   dashboard: {
     port: parseInt(process.env.DASHBOARD_PORT || '8765', 10),
   },
+  /** ElevenLabs TTS (optional). If set, director suggestions are spoken in voice. */
+  elevenlabs: {
+    apiKey: process.env.ELEVENLABS_API_KEY || null,
+    voiceId: process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM',
+    /** Name -> ElevenLabs voice ID for the UI dropdown. Add your own; keys are labels, values are voice IDs. */
+    voices: {
+      Khi: 'Iq6TL7fCl0jSeSIIgGEG',
+      Ajit: 'pzxut4zZz4GImZNlqQ3H',
+      Rachel: '21m00Tcm4TlvDq8ikWAM',
+      Adam: 'pNInz6obpgDQGcFmaJgB',
+      Sam: 'yoZ06aMxZJJ28mfd3POQ',
+      Nadia: 'GCPLhb1XrVwcoKUJYcvz',
+      Nikov: '3faLw6tqzw5w1UZMFTgL',
+      Minerva: '0E0gsPZaYRcRuLRIO5iU',
+      OldMan: 'NOpBlnGInO9m6vDvFkFC',
+      OldMan2: 'SGfyGfQJBs0O7iPKEkB5'
+    },
+  },
 };

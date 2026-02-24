@@ -11,6 +11,7 @@ import { MessageFlags } from 'discord-api-types/v10';
 import { joinVoiceChannel } from '@discordjs/voice';
 import { config } from './config.js';
 import { setupVoiceReceive } from './voiceHandler.js';
+import { setConnection as setTTSConnection } from './ttsPlayer.js';
 import { startDirectorLoop, requestDirectorSuggestion } from './directorLoop.js';
 import { startSessionLog, getRecentForDirector } from './conversationLog.js';
 import { getFactCheck } from './modditClient.js';
@@ -53,11 +54,12 @@ client.on(Events.MessageCreate, async (message) => {
     channelId: voiceChannel.id,
     guildId: voiceChannel.guild.id,
     adapterCreator: voiceChannel.guild.voiceAdapterCreator,
-    selfMute: true,
+    selfMute: false, // false so the bot can send TTS audio
     selfDeafen: false, // must be false to receive others' audio
   });
 
   setupVoiceReceive(connection, message.guild);
+  setTTSConnection(connection);
   startDirectorLoop();
   const { logPath, captionPath } = startSessionLog();
   console.log('Conversation log:', logPath);
@@ -78,10 +80,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
       channelId: voiceChannel.id,
       guildId: voiceChannel.guild.id,
       adapterCreator: voiceChannel.guild.voiceAdapterCreator,
-      selfMute: true,
+      selfMute: false, // false so the bot can send TTS audio
       selfDeafen: false, // must be false to receive others' audio
     });
     setupVoiceReceive(connection, interaction.guild);
+    setTTSConnection(connection);
     startDirectorLoop();
     const { logPath, captionPath } = startSessionLog();
     console.log('Conversation log:', logPath);

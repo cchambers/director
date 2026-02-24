@@ -4,7 +4,7 @@
  * Triggered by /suggest slash command or when the host says a trigger phrase (e.g. "yeah").
  */
 
-import { getRecentForDirector, reset as resetLog } from './conversationLog.js';
+import { getRecentForDirector, reset as resetDirectorBuffer } from './conversationLog.js';
 import { getDirectorSuggestion } from './modditClient.js';
 import { pushSuggestion } from './dashboard.js';
 import { config } from './config.js';
@@ -22,7 +22,7 @@ export async function requestDirectorSuggestion() {
   if (error) {
     return { suggestion: null, error };
   }
-  resetLog();
+  resetDirectorBuffer();
   if (suggestion) {
     console.log('\n🎬 Director:', suggestion, '\n');
     pushSuggestion(suggestion);

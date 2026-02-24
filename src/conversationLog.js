@@ -13,8 +13,14 @@ const { contextMessages } = config.moddit;
 /** @type {Array<{ speaker: string, text: string, timestamp: number, userId?: string }>} */
 const log = [];
 
+/** Buffer sent to Moddit for director suggestions; cleared after each successful suggestion so next send only has new messages. */
+const directorBuffer = [];
+
 /** Secondary buffer for claim extraction. Appended to with main log; cleared after extraction. */
 const claimBuffer = [];
+
+/** Listeners called when a new entry is appended (e.g. for SSE broadcast). Receive { speaker, text, timestamp }. */
+const logAppendListeners = [];
 
 /** Current session log file path; set when startSessionLog() is called. */
 let sessionLogPath = null;
@@ -44,6 +50,9 @@ function msToSrt(ms) {
  * @returns {{ logPath: string, captionPath: string }} Paths to the new log and caption files
  */
 export function startSessionLog(logDir = 'logs') {
+  log.length = 0;
+  directorBuffer.length = 0;
+  claimBuffer.length = 0;
   fs.mkdirSync(logDir, { recursive: true });
   sessionStartMs = Date.now();
   lastCaptionEndMs = 0;
@@ -65,19 +74,18 @@ export function append(speaker, text, opts = {}) {
   const trimmed = text?.trim();
   if (!trimmed) return;
   const now = Date.now();
-  log.push({
-    speaker,
-    text: trimmed,
-    timestamp: now,
-    userId: opts.userId,
-  });
-  claimBuffer.push({
-    speaker,
-    text: trimmed,
-    timestamp: now,
-    userId: opts.userId,
-  });
+  const entry = { speaker, text: trimmed, timestamp: now, userId: opts.userId };
+  log.push(entry);
+  directorBuffer.push(entry);
+  claimBuffer.push({ speaker, text: trimmed, timestamp: now, userId: opts.userId });
   console.log(`[${speaker}] ${trimmed}`);
+  logAppendListeners.forEach((fn) => {
+    try {
+      fn(entry);
+    } catch (err) {
+      console.warn('[Conversation log] append listener error:', err.message);
+    }
+  });
   if (sessionLogPath) {
     const line = `${speaker}: ${trimmed}\n`; //[${new Date(now).toISOString()}] 
     fs.appendFile(sessionLogPath, line, 'utf8', (err) => {
@@ -100,9 +108,9 @@ export function append(speaker, text, opts = {}) {
   }
 }
 
-/** Clear the log (call after sending to Moddit; Moddit manages history). */
+/** Clear only the director buffer (call after sending to Moddit; next suggestion gets only new messages). */
 export function reset() {
-  log.length = 0;
+  directorBuffer.length = 0;
 }
 
 /** Last log entry, or null. Used to check if last speaker was host vs guest. */
@@ -111,11 +119,11 @@ export function getLastEntry() {
 }
 
 /**
- * Returns the last N messages for the director API.
+ * Returns the last N messages for the director API (from the director buffer, cleared after each suggestion).
  * @returns {Array<{ speaker: string, text: string, timestamp?: string }>}
  */
 export function getRecentForDirector() {
-  const recent = log.slice(-contextMessages);
+  const recent = directorBuffer.slice(-contextMessages);
   return recent.map(({ speaker, text, timestamp }) => ({
     speaker,
     text,
@@ -140,4 +148,12 @@ export function resetClaimBuffer() {
 
 export function getLog() {
   return [...log];
+}
+
+/**
+ * Register a callback to run when a new log entry is appended. Used by dashboard to broadcast over SSE.
+ * @param {(entry: { speaker: string, text: string, timestamp: number }) => void} fn
+ */
+export function onLogAppend(fn) {
+  if (typeof fn === 'function') logAppendListeners.push(fn);
 }

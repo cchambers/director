@@ -13,6 +13,9 @@ const FACTCHECK_MOD_ID = 'a274a291-1581-43d0-a526-315c8dccc8de';
 /** Moddit model ID for claim extraction (outputs JSON array of { claim, type }). */
 const CLAIM_EXTRACTOR_MOD_ID = '657f34c9-0afe-4455-a95c-76e4cc200787';
 
+/** Moddit model ID for moderator "voice" — returns text to speak as the moderator. */
+const MODERATOR_MOD_ID = '1c45d7e7-0130-4083-ad27-976a6fa5a584';
+
 /**
  * @param {Array<{ speaker: string, text: string, timestamp?: string }>} messages - Recent conversation
  * @returns {Promise<{ suggestion?: string, error?: string }>}
@@ -44,6 +47,36 @@ ${context}
     }
     const data = await res.json().catch(() => ({}));
     return { suggestion: data.response ?? null };
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
+/**
+ * Get moderator "voice" response: send context from UI, mod returns text to speak. TTS plays separately.
+ * @param {string} context - Selected/highlighted text or other context from the UI
+ * @returns {Promise<{ response?: string, error?: string }>}
+ */
+export async function getModeratorResponse(context) {
+  const url = `${baseUrl}`;
+  const body = JSON.stringify({
+    apiKey: process.env.MODDIT_API_KEY,
+    mod: MODERATOR_MOD_ID,
+    input: String(context || '').trim() || 'No context provided.',
+    store: true,
+  });
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      return { error: `HTTP ${res.status}: ${text}` };
+    }
+    const data = await res.json().catch(() => ({}));
+    return { response: data.response ?? null };
   } catch (err) {
     return { error: err.message };
   }
