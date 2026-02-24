@@ -33,10 +33,63 @@ const client = new Client({
   ],
 });
 
-client.once(Events.ClientReady, (c) => {
+/**
+ * Join a voice channel and start listening/session. Used by /join, "join" message, and auto-join.
+ * @param {import('discord.js').VoiceChannel} voiceChannel
+ */
+function doJoinChannel(voiceChannel) {
+  const connection = joinVoiceChannel({
+    channelId: voiceChannel.id,
+    guildId: voiceChannel.guild.id,
+    adapterCreator: voiceChannel.guild.voiceAdapterCreator,
+    selfMute: false,
+    selfDeafen: false,
+  });
+  setupVoiceReceive(connection, voiceChannel.guild);
+  setTTSConnection(connection);
+  startDirectorLoop();
+  const { logPath, captionPath } = startSessionLog();
+  console.log('Conversation log:', logPath);
+  console.log('Caption file (SRT):', captionPath);
+  return connection;
+}
+
+/** If auto-join is enabled and host is in a voice channel, join that channel. */
+async function tryAutoJoinHost() {
+  const { autoJoinHostChannel, hostUserId } = discord;
+  if (!autoJoinHostChannel || !hostUserId) return;
+  for (const [, guild] of client.guilds.cache) {
+    try {
+      const member = await guild.members.fetch(hostUserId).catch(() => null);
+      const voiceChannel = member?.voice?.channel;
+      if (voiceChannel) {
+        console.log(`Auto-join: joining host in **${voiceChannel.name}** (${guild.name})`);
+        doJoinChannel(voiceChannel);
+        return;
+      }
+    } catch (_) {}
+  }
+}
+
+client.once(Events.ClientReady, async (c) => {
   console.log(`Logged in as ${c.user.tag}`);
   console.log('Use /join in a server where the bot is in a voice channel, or message the bot: "join"');
+  if (discord.autoJoinHostChannel && discord.hostUserId) {
+    console.log('Auto-join host channel is ON; will join when host is in voice.');
+  }
   startDashboard();
+  await tryAutoJoinHost();
+});
+
+client.on(Events.VoiceStateUpdate, (oldState, newState) => {
+  const { autoJoinHostChannel, hostUserId } = discord;
+  if (!autoJoinHostChannel || !hostUserId || newState.member?.id !== hostUserId) return;
+  const channel = newState.channel;
+  if (!channel) return; // host left voice
+  const botInSameGuild = newState.guild.members.me?.voice?.channelId;
+  if (botInSameGuild === channel.id) return; // already in this channel
+  console.log(`Auto-join: host joined **${channel.name}**, joining.`);
+  doJoinChannel(channel);
 });
 
 client.on(Events.MessageCreate, async (message) => {
@@ -50,20 +103,7 @@ client.on(Events.MessageCreate, async (message) => {
     return;
   }
 
-  const connection = joinVoiceChannel({
-    channelId: voiceChannel.id,
-    guildId: voiceChannel.guild.id,
-    adapterCreator: voiceChannel.guild.voiceAdapterCreator,
-    selfMute: false, // false so the bot can send TTS audio
-    selfDeafen: false, // must be false to receive others' audio
-  });
-
-  setupVoiceReceive(connection, message.guild);
-  setTTSConnection(connection);
-  startDirectorLoop();
-  const { logPath, captionPath } = startSessionLog();
-  console.log('Conversation log:', logPath);
-  console.log('Caption file (SRT):', captionPath);
+  doJoinChannel(voiceChannel);
   await message.reply(`Joined **${voiceChannel.name}**. I'm listening and logging; director suggestions will appear in the console.`);
 });
 
@@ -76,19 +116,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await interaction.reply({ content: 'Join a voice channel first.', flags: MessageFlags.Ephemeral });
       return;
     }
-    const connection = joinVoiceChannel({
-      channelId: voiceChannel.id,
-      guildId: voiceChannel.guild.id,
-      adapterCreator: voiceChannel.guild.voiceAdapterCreator,
-      selfMute: false, // false so the bot can send TTS audio
-      selfDeafen: false, // must be false to receive others' audio
-    });
-    setupVoiceReceive(connection, interaction.guild);
-    setTTSConnection(connection);
-    startDirectorLoop();
-    const { logPath, captionPath } = startSessionLog();
-    console.log('Conversation log:', logPath);
-    console.log('Caption file (SRT):', captionPath);
+    doJoinChannel(voiceChannel);
     await interaction.reply({ content: `Joined **${voiceChannel.name}**. Director is active. Use /suggest or say a trigger phrase (e.g. "yeah") for a suggestion.` });
     return;
   }

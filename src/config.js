@@ -5,6 +5,8 @@ export const config = {
     token: process.env.DISCORD_TOKEN,
     /** Discord user ID of the host (for phrase trigger and optional checks). Optional. */
     hostUserId: process.env.DISCORD_HOST_USER_ID || null,
+    /** If true and hostUserId is set, bot auto-joins the voice channel the host is in (on ready and when host joins). */
+    autoJoinHostChannel: process.env.DISCORD_AUTO_JOIN_HOST_CHANNEL === 'true' || process.env.DISCORD_AUTO_JOIN_HOST_CHANNEL === '1',
     /** Comma-separated phrases the host can say to trigger a director suggestion (e.g. "yeah,okay,go ahead"). */
     directorTriggerPhrases: (process.env.DISCORD_DIRECTOR_TRIGGER_PHRASES || 'yeah,okay,go ahead')
       .split(',')
@@ -34,6 +36,12 @@ export const config = {
   /** Dashboard UI for director suggestion cards */
   dashboard: {
     port: parseInt(process.env.DASHBOARD_PORT || '8765', 10),
+    /** If set (e.g. 'firefox'), video links open in this browser instead of the same window. Requires 'open' package. */
+    openVideoInBrowser: process.env.OPEN_VIDEO_IN_BROWSER || null,
+  },
+  /** Claims: auto-extract when a log line is longer than this (0 = disabled). */
+  claims: {
+    autoExtractMinLineLength: parseInt(process.env.CLAIM_EXTRACT_MIN_LINE_LENGTH || '20', 10),
   },
   /** ElevenLabs TTS (optional). If set, director suggestions are spoken in voice. */
   elevenlabs: {

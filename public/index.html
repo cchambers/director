@@ -235,6 +235,23 @@
     .log-entry .log-speaker { font-weight: 600; color: var(--accent); margin-right: 0.5rem; }
     .log-entry .log-text { color: var(--text); word-break: break-word; }
     .log-entry .log-time { font-size: 0.7rem; color: var(--muted); font-family: 'JetBrains Mono', monospace; margin-top: 0.25rem; }
+    .video-search-bar { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+    .video-query-input {
+      flex: 1; font-family: inherit; font-size: 0.875rem; padding: 0.5rem 0.75rem;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px; color: var(--text);
+    }
+    .video-query-input::placeholder { color: var(--muted); }
+    .video-query-input:focus { outline: none; border-color: var(--accent); }
+    .video-auto-open { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: var(--muted); margin-bottom: 1rem; cursor: pointer; }
+    .video-auto-open input { cursor: pointer; }
+    .video-results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+    .video-results li { margin: 0; }
+    .video-results a {
+      display: block; font-size: 0.875rem; padding: 0.5rem 0.75rem; background: var(--surface);
+      border: 1px solid var(--border); border-radius: 8px; color: var(--accent); text-decoration: none;
+    }
+    .video-results a:hover { background: var(--border); text-decoration: underline; }
+    .video-results a:focus { outline: none; border-color: var(--accent); }
     #contextMenu {
       display: none; position: fixed; z-index: 1000; min-width: 180px; background: var(--surface); border: 1px solid var(--border);
       border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); padding: 0.25rem 0;
@@ -290,6 +307,21 @@
         <div class="empty" id="emptyConversation">Conversation log will appear here once the bot is in voice. Click Refresh to update.</div>
       </div>
     </section>
+    <section class="column">
+      <h2 class="column-title"><span>Pull video</span></h2>
+      <div class="column-scroll" id="scrollVideo">
+        <div class="video-search-bar">
+          <input type="text" id="videoQueryInput" placeholder="e.g. how to tie a tie" class="video-query-input" />
+          <button type="button" class="btn primary" id="videoSearchBtn">Search</button>
+        </div>
+        <label class="video-auto-open">
+          <input type="checkbox" id="videoAutoOpenFirst" />
+          <span>Auto-open first result</span>
+        </label>
+        <div class="empty" id="emptyVideo">Enter a topic and search to pull video links (opens in new tab).</div>
+        <ul class="video-results" id="videoResults"></ul>
+      </div>
+    </section>
   </main>
   <div id="contextMenu" role="menu">
     <button type="button" id="contextMenuSpeak" role="menuitem">Speak with moderator</button>
@@ -312,6 +344,23 @@
     const contextMenuSpeak = document.getElementById('contextMenuSpeak');
     const contextMenuSpeakSearch = document.getElementById('contextMenuSpeakSearch');
     const voiceSelect = document.getElementById('voiceSelect');
+    const videoQueryInput = document.getElementById('videoQueryInput');
+    const videoSearchBtn = document.getElementById('videoSearchBtn');
+    const videoAutoOpenFirst = document.getElementById('videoAutoOpenFirst');
+    const emptyVideo = document.getElementById('emptyVideo');
+    const videoResults = document.getElementById('videoResults');
+
+    /** Same window name so every video opens in one window/tab. */
+    const VIDEO_WINDOW_NAME = 'podcastDirectorVideo';
+    let openVideoInBrowser = null;
+    fetch('/config').then((r) => r.json()).then((c) => { openVideoInBrowser = c.openVideoInBrowser || null; }).catch(() => {});
+    function openVideoUrl(url) {
+      if (openVideoInBrowser) {
+        fetch('/open-in-browser', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) }).catch(() => {});
+        return;
+      }
+      window.open(url, VIDEO_WINDOW_NAME, 'noopener');
+    }
 
     fetch('/voices').then((r) => r.json()).then((data) => {
       const voices = data.voices || [];
@@ -480,6 +529,33 @@
     }
     refreshConversationBtn.addEventListener('click', () => { refreshConversationBtn.disabled = true; loadConversation(); refreshConversationBtn.disabled = false; });
     loadConversation();
+
+    videoResults.addEventListener('click', (e) => {
+      const a = e.target.closest('a[href]');
+      if (!a || !videoResults.contains(a)) return;
+      e.preventDefault();
+      openVideoUrl(a.href);
+    });
+    videoSearchBtn.addEventListener('click', async () => {
+      const query = videoQueryInput.value.trim();
+      if (!query) return;
+      videoSearchBtn.disabled = true;
+      try {
+        const res = await fetch('/video/search', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }) });
+        const data = await res.json().catch(() => ({}));
+        const results = Array.isArray(data.results) ? data.results : [];
+        emptyVideo.hidden = results.length > 0;
+        if (results.length === 0) emptyVideo.textContent = 'No videos found. Try another query.';
+        videoResults.innerHTML = results.map((r) => `<li><a href="${escapeHtml(r.url)}" target="${escapeHtml(VIDEO_WINDOW_NAME)}" rel="noopener">${escapeHtml(r.title)}</a></li>`).join('');
+        if (videoAutoOpenFirst.checked && results.length > 0 && results[0].url) {
+          openVideoUrl(results[0].url);
+        }
+      } catch (err) {
+        emptyVideo.textContent = 'Search failed: ' + (err.message || 'Unknown error');
+        emptyVideo.hidden = false;
+      }
+      videoSearchBtn.disabled = false;
+    });
     // setInterval(loadConversation, 2000);
 
     let contextMenuSelection = '';
@@ -559,6 +635,19 @@
         const data = JSON.parse(e.data);
         if (data.type === 'logEntry' && data.entry) {
           appendLogEntry(data.entry);
+          return;
+        }
+        if (data.type === 'claims' && Array.isArray(data.claims) && data.claims.length) {
+          data.claims.forEach((c) => addClaimCard(c.claim, c.type, c.speaker));
+          emptyClaims.hidden = true;
+          return;
+        }
+        if (data.type === 'videoResults' && Array.isArray(data.results) && data.results.length) {
+          emptyVideo.hidden = true;
+          videoResults.innerHTML = data.results.map((r) => `<li><a href="${escapeHtml(r.url)}" target="${escapeHtml(VIDEO_WINDOW_NAME)}" rel="noopener">${escapeHtml(r.title)}</a></li>`).join('');
+          if (videoAutoOpenFirst.checked && data.results[0] && data.results[0].url) {
+            openVideoUrl(data.results[0].url);
+          }
           return;
         }
         if (data.type !== 'suggestion' || !data.text) return;

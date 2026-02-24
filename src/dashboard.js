@@ -12,7 +12,7 @@ import { config } from './config.js';
 const { elevenlabs } = config;
 import { getRecentForDirector, getRecentForClaimExtraction, resetClaimBuffer, reset as resetDirectorBuffer, getLog, onLogAppend } from './conversationLog.js';
 import { getFactCheck, getClaimExtraction, getFactCheckClaim, getDirectorSuggestion, getModeratorResponse } from './modditClient.js';
-import { getSearchContext } from './searchClient.js';
+import { getSearchContext, getVideoSearchResults } from './searchClient.js';
 import { speak as ttsSpeak } from './ttsPlayer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -60,6 +60,29 @@ function broadcast(entry) {
 
 onLogAppend((entry) => {
   broadcast({ type: 'logEntry', entry: { speaker: entry.speaker, text: entry.text, timestamp: entry.timestamp } });
+  const pullVideoMatch = entry.text.match(/pull\s+(?:up\s+)?a\s+video\s+(?:of|on)\s+(.+)/i);
+  if (pullVideoMatch) {
+    const topic = pullVideoMatch[1].trim();
+    getVideoSearchResults(topic).then((results) => {
+      if (results && results.length > 0) {
+        broadcast({ type: 'videoResults', results });
+      }
+    }).catch(() => {});
+  }
+  const minLen = config.claims?.autoExtractMinLineLength ?? 0;
+  if (minLen > 0 && entry.text.length > minLen) {
+    const messages = getRecentForClaimExtraction();
+    if (messages.length > 0) {
+      getClaimExtraction(messages).then(({ claims, error }) => {
+        if (error) return;
+        const list = claims ?? [];
+        if (list.length > 0) {
+          broadcast({ type: 'claims', claims: list });
+          resetClaimBuffer();
+        }
+      }).catch(() => {});
+    }
+  }
 });
 
 function serveFile(res, filePath, contentType) {
@@ -245,6 +268,82 @@ const server = http.createServer((req, res) => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ response: response ?? null, sources: sources ?? [] }));
       });
+    });
+    return;
+  }
+  if (url === '/config' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      openVideoInBrowser: config.dashboard.openVideoInBrowser || null,
+    }));
+    return;
+  }
+  const VIDEO_OPEN_ALLOWED_HOSTS = new Set([
+    'youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be',
+    'vimeo.com', 'www.vimeo.com', 'player.vimeo.com',
+    'dailymotion.com', 'www.dailymotion.com',
+    'twitch.tv', 'www.twitch.tv', 'player.twitch.tv',
+  ]);
+  if (url === '/open-in-browser' && req.method === 'POST') {
+    const browser = config.dashboard.openVideoInBrowser;
+    if (!browser?.trim()) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'OPEN_VIDEO_IN_BROWSER not set' }));
+      return;
+    }
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', async () => {
+      let payload;
+      try {
+        payload = body ? JSON.parse(body) : {};
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        return;
+      }
+      const rawUrl = typeof payload.url === 'string' ? payload.url.trim() : '';
+      let parsed;
+      try {
+        parsed = new URL(rawUrl);
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid URL' }));
+        return;
+      }
+      if (!VIDEO_OPEN_ALLOWED_HOSTS.has(parsed.hostname)) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'URL not in allowed video hosts' }));
+        return;
+      }
+      try {
+        const open = (await import('open')).default;
+        await open(rawUrl, { app: { name: browser.trim() } });
+        res.writeHead(204);
+        res.end();
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message || 'Failed to open in browser' }));
+      }
+    });
+    return;
+  }
+  if (url === '/video/search' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', async () => {
+      let payload;
+      try {
+        payload = body ? JSON.parse(body) : {};
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON', results: [] }));
+        return;
+      }
+      const query = typeof payload.query === 'string' ? payload.query.trim() : '';
+      const results = await getVideoSearchResults(query);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ results }));
     });
     return;
   }
