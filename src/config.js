@@ -60,6 +60,7 @@ export const config = {
     voiceId: process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM',
     /** Name -> ElevenLabs voice ID for the UI dropdown. Add your own; keys are labels, values are voice IDs. */
     voices: {
+      Donut: 'USEQXnsXRJlw2k9LUzG4',
       Khi: 'Iq6TL7fCl0jSeSIIgGEG',
       Ajit: 'pzxut4zZz4GImZNlqQ3H',
       Rachel: '21m00Tcm4TlvDq8ikWAM',

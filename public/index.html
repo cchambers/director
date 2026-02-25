@@ -56,6 +56,49 @@
     .header-voice { display: flex; align-items: center; gap: 0.5rem; }
     .header-voice label { font-size: 0.8rem; color: var(--muted); }
     .header-toggle { display: flex; align-items: center; gap: 0.35rem; cursor: pointer; }
+    .header-settings {
+      position: relative;
+    }
+    .header-settings .settings-trigger {
+      font-family: inherit; font-size: 0.875rem; padding: 0.4rem 0.75rem;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+      color: var(--muted); cursor: pointer; display: flex; align-items: center; gap: 0.4rem;
+    }
+    .header-settings .settings-trigger:hover { color: var(--text); border-color: var(--accent); }
+    .header-settings .settings-panel {
+      display: none; position: absolute; top: 100%; right: 0; margin-top: 0.35rem;
+      min-width: 220px; padding: 1rem; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.35); z-index: 100;
+    }
+    .header-settings.open .settings-panel { display: block; }
+    .header-settings .settings-panel .setting-row { margin-bottom: 0.75rem; }
+    .header-settings .settings-panel .setting-row:last-child { margin-bottom: 0; }
+    .tools-tabs {
+      display: flex; flex-shrink: 0; border-bottom: 1px solid var(--border);
+      background: var(--surface); padding: 0 0.5rem 0 0;
+    }
+    .tools-tab {
+      font-family: inherit; font-size: 0.8rem; font-weight: 500; padding: 0.6rem 1rem;
+      background: none; border: none; border-bottom: 2px solid transparent;
+      color: var(--muted); cursor: pointer; margin-bottom: -1px;
+    }
+    .tools-tab:hover { color: var(--text); }
+    .tools-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tools-panel { display: none; flex: 1; min-height: 0; flex-direction: column; overflow: hidden; }
+    .tools-panel.active { display: flex; }
+    .tools-panel .column-scroll { flex: 1; }
+    .column.tools-column { min-width: 280px; max-width: 380px; }
+    .column.tools-column.collapsed { min-width: 52px; max-width: 52px; }
+    .column.tools-column.collapsed .tools-tabs,
+    .column.tools-column.collapsed .tools-panel { display: none !important; }
+    .column.tools-column.collapsed .column-title span { display: none; }
+    .column.tools-column.collapsed .tools-toggle { margin-left: 0; }
+    .tools-toggle {
+      flex-shrink: 0; font-family: inherit; font-size: 0.75rem; padding: 0.35rem 0.5rem;
+      background: var(--border); border: none; border-radius: 4px; color: var(--muted);
+      cursor: pointer; margin-left: 0.25rem;
+    }
+    .tools-toggle:hover { color: var(--text); }
     .voice-select {
       font-family: inherit; font-size: 0.875rem;
       padding: 0.35rem 0.6rem;
@@ -272,36 +315,23 @@
       <h1>Director</h1>
       <span class="badge">LIVE</span>
     </div>
-    <div class="header-voice">
-      <label class="header-toggle">
-        <input type="checkbox" id="transcriptionEnabledCheckbox" checked />
-        <span>Live transcribe</span>
-      </label>
-      <label for="voiceSelect">Voice</label>
-      <select id="voiceSelect" class="voice-select" aria-label="TTS voice"></select>
+    <div class="header-settings" id="headerSettings">
+      <button type="button" class="settings-trigger" id="settingsTrigger" aria-haspopup="true" aria-expanded="false">⚙ Settings</button>
+      <div class="settings-panel" id="settingsPanel" role="menu">
+        <div class="setting-row">
+          <label class="header-toggle">
+            <input type="checkbox" id="transcriptionEnabledCheckbox" checked />
+            <span>Live transcribe</span>
+          </label>
+        </div>
+        <div class="setting-row">
+          <label for="voiceSelect" style="display:block; margin-bottom: 0.25rem;">Voice</label>
+          <select id="voiceSelect" class="voice-select" aria-label="TTS voice" style="width: 100%;"></select>
+        </div>
+      </div>
     </div>
   </header>
   <main class="layout">
-    <section class="column">
-      <h2 class="column-title">
-        <span>Direction</span>
-        <button type="button" class="btn primary" id="suggestBtn">Suggestions</button>
-      </h2>
-      <div class="column-scroll" id="scrollDirector">
-        <div class="cards" id="cardsDirector"></div>
-        <div class="empty" id="emptyDirector">Use &quot;Suggestions&quot; or /suggest or say a trigger phrase in voice.</div>
-      </div>
-    </section>
-    <section class="column">
-      <h2 class="column-title">
-        <span>Claims</span>
-        <button type="button" class="btn primary" id="refreshClaimsBtn">Refresh claims</button>
-      </h2>
-      <div class="column-scroll" id="scrollClaims">
-        <div class="cards" id="cardsClaims"></div>
-        <div class="empty" id="emptyClaims">Click &quot;Refresh claims&quot; to extract claims from the conversation.</div>
-      </div>
-    </section>
     <section class="column">
       <h2 class="column-title">
         <span>Conversation</span>
@@ -313,28 +343,64 @@
       </div>
     </section>
     <section class="column">
-      <h2 class="column-title"><span>Pull video</span></h2>
-      <div class="column-scroll" id="scrollVideo">
-        <div class="video-search-bar">
-          <input type="text" id="videoQueryInput" placeholder="e.g. how to tie a tie" class="video-query-input" />
-          <button type="button" class="btn primary" id="videoSearchBtn">Search</button>
+      <h2 class="column-title">
+        <span>Direction</span>
+        <button type="button" class="btn primary" id="suggestBtn">Suggestions</button>
+      </h2>
+      <div class="column-scroll" id="scrollDirector">
+        <div class="cards" id="cardsDirector"></div>
+        <div class="empty" id="emptyDirector">Use &quot;Suggestions&quot; or /suggest or say a trigger phrase in voice.</div>
+      </div>
+    </section>
+    <section class="column tools-column" id="toolsColumn">
+      <h2 class="column-title">
+        <span>Tools</span>
+        <button type="button" class="tools-toggle" id="toolsToggle" title="Collapse/expand tools">◀</button>
+      </h2>
+      <div class="tools-tabs">
+        <button type="button" class="tools-tab active" data-tab="claims" id="toolsTabClaims">Claims</button>
+        <button type="button" class="tools-tab" data-tab="video" id="toolsTabVideo">Video</button>
+        <button type="button" class="tools-tab" data-tab="obs" id="toolsTabOBS">OBS</button>
+      </div>
+      <div class="tools-panel active" id="toolsPanelClaims" data-panel="claims">
+        <div class="column-scroll" id="scrollClaims">
+          <div style="margin-bottom: 0.75rem;">
+            <button type="button" class="btn primary" id="refreshClaimsBtn">Refresh claims</button>
+          </div>
+          <div class="cards" id="cardsClaims"></div>
+          <div class="empty" id="emptyClaims">Click &quot;Refresh claims&quot; to extract claims from the conversation.</div>
         </div>
-        <label class="video-auto-open">
-          <input type="checkbox" id="videoAutoOpenFirst" />
-          <span>Auto-open first result</span>
-        </label>
-        <div class="video-search-bar" style="margin-top: 1rem;">
-          <input type="text" id="twitchChannelInput" placeholder="Twitch channel name" class="video-query-input" />
-          <button type="button" class="btn primary" id="twitchLoadBtn">Load stream</button>
+      </div>
+      <div class="tools-panel" id="toolsPanelVideo" data-panel="video">
+        <div class="column-scroll" id="scrollVideo">
+          <div class="video-search-bar">
+            <input type="text" id="videoQueryInput" placeholder="e.g. how to tie a tie" class="video-query-input" />
+            <button type="button" class="btn primary" id="videoSearchBtn">Search</button>
+          </div>
+          <label class="video-auto-open">
+            <input type="checkbox" id="videoAutoOpenFirst" />
+            <span>Auto-open first result</span>
+          </label>
+          <div class="video-search-bar" style="margin-top: 1rem;">
+            <input type="text" id="twitchChannelInput" placeholder="Twitch channel name" class="video-query-input" />
+            <button type="button" class="btn primary" id="twitchLoadBtn">Load stream</button>
+          </div>
+          <div class="empty" id="emptyVideo">Enter a topic and search to pull video links (opens in new tab).</div>
+          <ul class="video-results" id="videoResults"></ul>
         </div>
-        <div style="margin-top: 1rem;">
-          <div class="column-title" style="padding: 0 0 0.5rem 0; border: none;"><span>Lower third (OBS)</span></div>
-          <input type="text" id="lowerThirdFirst" placeholder="First line" class="video-query-input" style="margin-bottom: 0.5rem;" />
-          <input type="text" id="lowerThirdSecond" placeholder="Second line" class="video-query-input" style="margin-bottom: 0.5rem;" />
-          <button type="button" class="btn primary" id="lowerThirdTriggerBtn">Trigger</button>
+      </div>
+      <div class="tools-panel" id="toolsPanelOBS" data-panel="obs">
+        <div class="column-scroll">
+          <div style="margin-bottom: 1rem;">
+            <label style="display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem;">First line</label>
+            <input type="text" id="lowerThirdFirst" placeholder="e.g. Captain Khi" class="video-query-input" />
+          </div>
+          <div style="margin-bottom: 1rem;">
+            <label style="display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.35rem;">Second line</label>
+            <input type="text" id="lowerThirdSecond" placeholder="e.g. Here to save the day" class="video-query-input" />
+          </div>
+          <button type="button" class="btn primary" id="lowerThirdTriggerBtn">Trigger lower third</button>
         </div>
-        <div class="empty" id="emptyVideo">Enter a topic and search to pull video links (opens in new tab).</div>
-        <ul class="video-results" id="videoResults"></ul>
       </div>
     </section>
   </main>
@@ -370,6 +436,39 @@
     const lowerThirdTriggerBtn = document.getElementById('lowerThirdTriggerBtn');
     const emptyVideo = document.getElementById('emptyVideo');
     const videoResults = document.getElementById('videoResults');
+    const headerSettings = document.getElementById('headerSettings');
+    const settingsTrigger = document.getElementById('settingsTrigger');
+    const settingsPanel = document.getElementById('settingsPanel');
+    const toolsColumn = document.getElementById('toolsColumn');
+    const toolsToggle = document.getElementById('toolsToggle');
+    const toolsTabClaims = document.getElementById('toolsTabClaims');
+    const toolsTabVideo = document.getElementById('toolsTabVideo');
+    const toolsTabOBS = document.getElementById('toolsTabOBS');
+    const toolsPanelClaims = document.getElementById('toolsPanelClaims');
+    const toolsPanelVideo = document.getElementById('toolsPanelVideo');
+    const toolsPanelOBS = document.getElementById('toolsPanelOBS');
+
+    settingsTrigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      headerSettings.classList.toggle('open');
+      settingsTrigger.setAttribute('aria-expanded', headerSettings.classList.contains('open'));
+    });
+    document.addEventListener('click', () => { headerSettings.classList.remove('open'); settingsTrigger.setAttribute('aria-expanded', 'false'); });
+    settingsPanel.addEventListener('click', (e) => e.stopPropagation());
+
+    function setToolsTab(activeTab) {
+      [toolsTabClaims, toolsTabVideo, toolsTabOBS].forEach((t) => t.classList.toggle('active', t.dataset.tab === activeTab));
+      [toolsPanelClaims, toolsPanelVideo, toolsPanelOBS].forEach((p) => p.classList.toggle('active', p.dataset.panel === activeTab));
+    }
+    toolsTabClaims.addEventListener('click', () => setToolsTab('claims'));
+    toolsTabVideo.addEventListener('click', () => setToolsTab('video'));
+    toolsTabOBS.addEventListener('click', () => setToolsTab('obs'));
+
+    toolsToggle.addEventListener('click', () => {
+      toolsColumn.classList.toggle('collapsed');
+      toolsToggle.textContent = toolsColumn.classList.contains('collapsed') ? '▶' : '◀';
+      toolsToggle.title = toolsColumn.classList.contains('collapsed') ? 'Expand tools' : 'Collapse tools';
+    });
 
     /** Same window name so every video opens in one window/tab. */
     const VIDEO_WINDOW_NAME = 'podcastDirectorVideo';
