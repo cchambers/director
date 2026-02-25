@@ -84,7 +84,7 @@ let lastVideoTopic = '';
 let lastVideoTopicAt = 0;
 const PULL_VIDEO_DEBOUNCE_MS = 60000;
 /** Match "pull (up) a video(s) of/on X" — only in the current message so we don't trigger on follow-ups like "mhmm". */
-const PULL_VIDEO_REGEX = /pull\s+(?:up\s+)?a\s+video?s?\s+(?:of|on|by)\s+(.+)/i;
+const PULL_VIDEO_REGEX = /pull\s+(?:up\s+)?a\s+video?s?\s+(?:of|on|by|with)\s+(.+)/i;
 /** Match "play the latest video from X" / "latest video from X". */
 const LATEST_VIDEO_FROM_REGEX = /(?:play\s+)?(?:the\s+)?latest\s+video\s+from\s+(.+)/i;
 /** Debounce for "latest video from" (same channel within 60s). */
@@ -204,6 +204,33 @@ const server = http.createServer((req, res) => {
         if (result) pushFactCheck(result);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ result: result ?? null, error: error ?? null }));
+      });
+    });
+    return;
+  }
+  if (url === '/factcheck/claim' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let payload;
+      try {
+        payload = body ? JSON.parse(body) : {};
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        return;
+      }
+      const claim = typeof payload.claim === 'string' ? payload.claim.trim() : '';
+      if (!claim) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Missing claim' }));
+        return;
+      }
+      const withSearch = !!payload.withSearch;
+      getFactCheckClaim(claim, { withSearch }).then(({ result, verdict, error }) => {
+        if (result) pushFactCheck(result);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ result: result ?? null, verdict: verdict ?? null, error: error ?? null }));
       });
     });
     return;
@@ -501,6 +528,10 @@ const server = http.createServer((req, res) => {
 export function startDashboard() {
   server.listen(port, '0.0.0.0', () => {
     console.log(`Dashboard: http://localhost:${port}`);
+    if (config.dashboard.openOnStart) {
+      const url = `http://localhost:${port}`;
+      import('open').then(({ default: open }) => open(url)).catch((err) => console.warn('[Dashboard] Could not open in browser:', err.message));
+    }
   });
   server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {

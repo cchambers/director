@@ -38,6 +38,8 @@ export const config = {
     port: parseInt(process.env.DASHBOARD_PORT || '8765', 10),
     /** If set (e.g. 'firefox'), video links open in this browser instead of the same window. Requires 'open' package. */
     openVideoInBrowser: process.env.OPEN_VIDEO_IN_BROWSER || null,
+    /** If true (default), open the dashboard in the default browser when the app starts. Set DASHBOARD_OPEN_ON_START=false to disable. */
+    openOnStart: process.env.DASHBOARD_OPEN_ON_START !== 'false',
   },
   /** Claims: auto-extract when a log line is longer than this (0 = disabled). */
   claims: {

@@ -75,7 +75,6 @@ async function tryAutoJoinHost() {
 
 client.once(Events.ClientReady, async (c) => {
   console.log(`Logged in as ${c.user.tag}`);
-  console.log('Use /join in a server where the bot is in a voice channel, or message the bot: "join"');
   if (discord.autoJoinHostChannel && discord.hostUserId) {
     console.log('Auto-join host channel is ON; will join when host is in voice.');
   }
@@ -119,7 +118,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       return;
     }
     doJoinChannel(voiceChannel);
-    await interaction.reply({ content: `Joined **${voiceChannel.name}**. Director is active. Use /suggest or say a trigger phrase (e.g. "yeah") for a suggestion.` });
+    await interaction.reply({ content: `Joined **${voiceChannel.name}**. Director is active!` });
     return;
   }
 
