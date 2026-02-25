@@ -54,14 +54,17 @@ ${context}
 
 /**
  * Get moderator "voice" response: send context from UI, mod returns text to speak. TTS plays separately.
+ * Uses MODERATOR_MOD_ID (config.moderatorModId) unless options.modId is provided (e.g. from voice selection).
  * @param {string} context - Selected/highlighted text or other context from the UI
+ * @param {{ modId?: string }} [options] - Optional modId; when missing, config.moderatorModId is used
  * @returns {Promise<{ response?: string, error?: string }>}
  */
-export async function getModeratorResponse(context) {
+export async function getModeratorResponse(context, options) {
+  const modId = options?.modId ?? config.moderatorModId ?? MODERATOR_MOD_ID;
   const url = `${baseUrl}`;
   const body = JSON.stringify({
     apiKey: process.env.MODDIT_API_KEY,
-    mod: MODERATOR_MOD_ID,
+    mod: modId,
     input: String(context || '').trim() || 'No context provided.',
     store: true,
   });

@@ -58,19 +58,38 @@ export const config = {
   elevenlabs: {
     apiKey: process.env.ELEVENLABS_API_KEY || null,
     voiceId: process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM',
-    /** Name -> ElevenLabs voice ID for the UI dropdown. Add your own; keys are labels, values are voice IDs. */
+    /**
+     * Name -> voiceId string OR { voiceId, modId? }.
+     * modId is optional; when missing, MODERATOR_MOD_ID (env or default) is used for getModeratorResponse.
+     */
     voices: {
-      Donut: 'USEQXnsXRJlw2k9LUzG4',
-      Khi: 'Iq6TL7fCl0jSeSIIgGEG',
-      Ajit: 'pzxut4zZz4GImZNlqQ3H',
-      Rachel: '21m00Tcm4TlvDq8ikWAM',
-      Adam: 'pNInz6obpgDQGcFmaJgB',
-      Sam: 'yoZ06aMxZJJ28mfd3POQ',
-      Nadia: 'GCPLhb1XrVwcoKUJYcvz',
-      Nikov: '3faLw6tqzw5w1UZMFTgL',
-      Minerva: '0E0gsPZaYRcRuLRIO5iU',
-      OldMan: 'NOpBlnGInO9m6vDvFkFC',
-      OldMan2: 'SGfyGfQJBs0O7iPKEkB5'
+      Donut: { voiceId: 'USEQXnsXRJlw2k9LUzG4', modId: '523803a8-8f32-40a7-9fc8-5fe168632c90', store: true },
+      Khi: { voiceId: 'Iq6TL7fCl0jSeSIIgGEG' },
+      Ajit: { voiceId: 'pzxut4zZz4GImZNlqQ3H' },
+      Rachel: { voiceId: '21m00Tcm4TlvDq8ikWAM' },
+      Adam: { voiceId: 'pNInz6obpgDQGcFmaJgB' },
+      Sam: { voiceId: 'yoZ06aMxZJJ28mfd3POQ' },
+      Nadia: { voiceId: 'GCPLhb1XrVwcoKUJYcvz' },
+      Nikov: { voiceId: '3faLw6tqzw5w1UZMFTgL' },
+      Minerva: { voiceId: '0E0gsPZaYRcRuLRIO5iU' },
+      OldMan: { voiceId: 'NOpBlnGInO9m6vDvFkFC' },
+      OldMan2: { voiceId: 'SGfyGfQJBs0O7iPKEkB5' },
     },
   },
+  /** Default mod for moderator/speak when a voice does not specify modId (env MODERATOR_MOD_ID or fallback). */
+  moderatorModId: process.env.MODERATOR_MOD_ID || '1c45d7e7-0130-4083-ad27-976a6fa5a584',
 };
+
+/**
+ * Normalize a voice entry (string = voiceId only, or { voiceId, modId? }) to { voiceId, modId }.
+ * @param {string|{ voiceId: string, modId?: string }} v
+ * @param {string} defaultModId
+ * @returns {{ voiceId: string, modId: string }}
+ */
+export function normalizeVoiceEntry(v, defaultModId) {
+  if (typeof v === 'string') return { voiceId: v, modId: defaultModId };
+  return {
+    voiceId: v?.voiceId ?? '',
+    modId: v?.modId ?? defaultModId,
+  };
+}

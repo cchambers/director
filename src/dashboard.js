@@ -7,10 +7,27 @@ import http from 'http';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { config } from './config.js';
+import { config, normalizeVoiceEntry } from './config.js';
 
 const { elevenlabs } = config;
-import { getRecentForDirector, getRecentForClaimExtraction, resetClaimBuffer, reset as resetDirectorBuffer, getLog, onLogAppend } from './conversationLog.js';
+const defaultModId = config.moderatorModId;
+
+function getVoicesList() {
+  const raw = elevenlabs?.voices && typeof elevenlabs.voices === 'object' ? elevenlabs.voices : {};
+  return Object.entries(raw).map(([name, val]) => {
+    const { voiceId, modId } = normalizeVoiceEntry(val, defaultModId);
+    return { name, id: name, voiceId, modId };
+  });
+}
+
+function resolveVoice(voiceName) {
+  if (!voiceName || typeof voiceName !== 'string') return null;
+  const raw = elevenlabs?.voices && typeof elevenlabs.voices === 'object' ? elevenlabs.voices : {};
+  const val = raw[voiceName.trim()];
+  if (val === undefined) return null;
+  return normalizeVoiceEntry(val, defaultModId);
+}
+import { getRecentForDirector, getRecentForClaimExtraction, resetClaimBuffer, reset as resetDirectorBuffer, getLog, onLogAppend, updateEntry } from './conversationLog.js';
 import { getFactCheck, getClaimExtraction, getFactCheckClaim, getDirectorSuggestion, getModeratorResponse } from './modditClient.js';
 import { getSearchContext, getVideoSearchResults, getLatestVideoFromChannel } from './searchClient.js';
 import { speak as ttsSpeak, playLocalMp3 } from './ttsPlayer.js';
@@ -235,10 +252,40 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify({ entries }));
     return;
   }
+  if (url === '/conversation' && req.method === 'PATCH') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let payload;
+      try {
+        payload = body ? JSON.parse(body) : {};
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        return;
+      }
+      const index = typeof payload.index === 'number' ? payload.index : parseInt(payload.index, 10);
+      if (Number.isNaN(index)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Missing or invalid index' }));
+        return;
+      }
+      const patch = {};
+      if (payload.speaker !== undefined) patch.speaker = payload.speaker;
+      if (payload.text !== undefined) patch.text = payload.text;
+      const result = updateEntry(index, patch);
+      if (result.error) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: result.error }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ entry: result.entry }));
+    });
+    return;
+  }
   if (url === '/voices' && req.method === 'GET') {
-    const voices = elevenlabs?.voices && typeof elevenlabs.voices === 'object'
-      ? Object.entries(elevenlabs.voices).map(([name, id]) => ({ name, id }))
-      : [];
+    const voices = getVoicesList();
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ voices }));
     return;
@@ -256,18 +303,17 @@ const server = http.createServer((req, res) => {
         return;
       }
       const text = typeof payload.text === 'string' ? payload.text.trim() : '';
-      const voiceId = typeof payload.voiceId === 'string' ? payload.voiceId.trim() : null;
-      const allowedIds = elevenlabs?.voices && typeof elevenlabs.voices === 'object'
-        ? new Set(Object.values(elevenlabs.voices))
-        : new Set();
-      const safeVoiceId = (voiceId && allowedIds.has(voiceId)) ? voiceId : null;
-      getModeratorResponse(text || 'No context provided.').then(({ response, error }) => {
+      const voiceName = typeof payload.voice === 'string' ? payload.voice.trim() : null;
+      const entry = resolveVoice(voiceName);
+      const voiceId = entry?.voiceId ?? null;
+      const modId = entry?.modId ?? null;
+      getModeratorResponse(text || 'No context provided.', { modId }).then(({ response, error }) => {
         if (error) {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ response: null, error }));
           return;
         }
-        if (response) ttsSpeak(response, { voiceId: safeVoiceId || undefined }).catch((err) => console.warn('[TTS]', err.message));
+        if (response) ttsSpeak(response, { voiceId: voiceId || undefined }).catch((err) => console.warn('[TTS]', err.message));
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ response: response ?? null }));
       });
@@ -287,23 +333,22 @@ const server = http.createServer((req, res) => {
         return;
       }
       const text = typeof payload.text === 'string' ? payload.text.trim() : '';
-      const voiceId = typeof payload.voiceId === 'string' ? payload.voiceId.trim() : null;
-      const allowedIds = elevenlabs?.voices && typeof elevenlabs.voices === 'object'
-        ? new Set(Object.values(elevenlabs.voices))
-        : new Set();
-      const safeVoiceId = (voiceId && allowedIds.has(voiceId)) ? voiceId : null;
+      const voiceName = typeof payload.voice === 'string' ? payload.voice.trim() : null;
+      const entry = resolveVoice(voiceName);
+      const voiceId = entry?.voiceId ?? null;
+      const modId = entry?.modId ?? null;
       const input = text || 'No context provided.';
       const { contextText, sources } = await getSearchContext(input);
       const enrichedInput = contextText
         ? `${input}\n\nSearch context:\n${contextText}`
         : input;
-      getModeratorResponse(enrichedInput).then(({ response, error }) => {
+      getModeratorResponse(enrichedInput, { modId }).then(({ response, error }) => {
         if (error) {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ response: null, error, sources: sources ?? [] }));
           return;
         }
-        if (response) ttsSpeak(response, { voiceId: safeVoiceId || undefined }).catch((err) => console.warn('[TTS]', err.message));
+        if (response) ttsSpeak(response, { voiceId: voiceId || undefined }).catch((err) => console.warn('[TTS]', err.message));
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ response: response ?? null, sources: sources ?? [] }));
       });

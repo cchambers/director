@@ -114,6 +114,41 @@ export function append(speaker, text, opts = {}) {
   }
 }
 
+/**
+ * Rewrite the session .log file with current log contents (used after an edit).
+ * Writes header + one line per entry: "speaker: text\n".
+ */
+function rewriteSessionLogFile() {
+  if (!sessionLogPath) return;
+  const header = `Session started ${new Date(sessionStartMs).toISOString()}\n`;
+  const body = log.map((e) => `${e.speaker}: ${e.text}\n`).join('');
+  try {
+    fs.writeFileSync(sessionLogPath, header + body, 'utf8');
+  } catch (err) {
+    console.warn('[Conversation log file] rewrite failed:', err.message);
+  }
+}
+
+/**
+ * Update a single log entry by index. Also updates director and claim buffers and rewrites the session .log file.
+ * @param {number} index - Zero-based index into the log
+ * @param {{ speaker?: string, text?: string }} patch - Fields to update (trimmed; omit to leave unchanged)
+ * @returns {{ entry: { speaker, text, timestamp } } | { error: string }}
+ */
+export function updateEntry(index, patch) {
+  if (index < 0 || index >= log.length) return { error: 'Invalid index' };
+  const entry = log[index];
+  if (patch.speaker !== undefined) entry.speaker = String(patch.speaker).trim() || entry.speaker;
+  if (patch.text !== undefined) entry.text = String(patch.text).trim() || entry.text;
+  if (claimBuffer[index]) {
+    claimBuffer[index].speaker = entry.speaker;
+    claimBuffer[index].text = entry.text;
+  }
+  /* directorBuffer holds same object refs as log, so entry is already updated */
+  rewriteSessionLogFile();
+  return { entry: { speaker: entry.speaker, text: entry.text, timestamp: entry.timestamp } };
+}
+
 /** Clear only the director buffer (call after sending to Moddit; next suggestion gets only new messages). */
 export function reset() {
   directorBuffer.length = 0;

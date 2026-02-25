@@ -274,11 +274,18 @@
       font-size: 0.875rem;
     }
     .empty p { margin: 0; }
-    .log-entries { display: flex; flex-direction: column; gap: 0.5rem; }
+    .log-entries { display: flex; flex-direction: column-reverse; gap: 0.5rem; }
     .log-entry { font-size: 0.875rem; padding: 0.5rem 0.75rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
     .log-entry .log-speaker { font-weight: 600; color: var(--accent); margin-right: 0.5rem; }
     .log-entry .log-text { color: var(--text); word-break: break-word; }
     .log-entry .log-time { font-size: 0.7rem; color: var(--muted); font-family: 'JetBrains Mono', monospace; margin-top: 0.25rem; }
+    .log-entry[title] { cursor: text; }
+    .log-entry .log-edit-speaker { width: 6rem; font-family: inherit; font-size: 0.875rem; padding: 0.25rem 0.5rem; margin-right: 0.5rem; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text); }
+    .log-entry .log-edit-text { display: block; width: 100%; min-height: 3rem; margin-top: 0.25rem; font-family: inherit; font-size: 0.875rem; padding: 0.5rem; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text); resize: vertical; box-sizing: border-box; }
+    .log-entry .log-edit-actions { margin-top: 0.5rem; display: flex; gap: 0.5rem; }
+    .log-entry .log-edit-actions button { font-family: inherit; font-size: 0.8rem; padding: 0.25rem 0.5rem; border-radius: 4px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; }
+    .log-entry .log-edit-actions button:hover { background: var(--border); }
+    .log-entry .log-edit-actions .log-save { background: var(--accent); border-color: var(--accent); color: var(--bg); }
     .video-search-bar { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
     .video-query-input {
       flex: 1; font-family: inherit; font-size: 0.875rem; padding: 0.5rem 0.75rem;
@@ -647,14 +654,69 @@
       fetch('/conversation').then((r) => r.json()).then((data) => {
         const entries = data.entries || [];
         emptyConversation.hidden = entries.length > 0;
-        logEntries.innerHTML = entries.map((e) => `
-          <div class="log-entry" data-speaker="${escapeHtml(e.speaker || '')}" data-text="${escapeHtml((e.text || '').slice(0, 200))}">
+        logEntries.innerHTML = entries.map((e, i) => `
+          <div class="log-entry" data-index="${i}" data-speaker="${escapeHtml(e.speaker || '')}" data-text="${escapeHtml((e.text || '').slice(0, 200))}" title="Double-click to edit">
             <span class="log-speaker">${escapeHtml(e.speaker || '')}:</span><span class="log-text">${escapeHtml(e.text || '')}</span>
             <div class="log-time">${formatTime(e.timestamp || 0)}</div>
           </div>
         `).join('');
       }).catch(() => { emptyConversation.textContent = 'Failed to load conversation.'; emptyConversation.hidden = false; });
     }
+
+    function renderLogEntry(entry, index, timeStr) {
+      const t = timeStr !== undefined ? timeStr : formatTime(entry.timestamp || 0);
+      return `
+        <div class="log-entry" data-index="${index}" data-speaker="${escapeHtml(entry.speaker || '')}" data-text="${escapeHtml((entry.text || '').slice(0, 200))}" title="Double-click to edit">
+          <span class="log-speaker">${escapeHtml(entry.speaker || '')}:</span><span class="log-text">${escapeHtml(entry.text || '')}</span>
+          <div class="log-time">${escapeHtml(t)}</div>
+        </div>
+      `;
+    }
+
+    logEntries.addEventListener('dblclick', (e) => {
+      const entryEl = e.target.closest('.log-entry');
+      if (!entryEl || entryEl.querySelector('.log-edit-speaker')) return;
+      const index = entryEl.dataset.index;
+      if (index === undefined) return;
+      const speakerSpan = entryEl.querySelector('.log-speaker');
+      const textSpan = entryEl.querySelector('.log-text');
+      const timeDiv = entryEl.querySelector('.log-time');
+      const originalSpeaker = speakerSpan ? speakerSpan.textContent.replace(/:$/, '').trim() : '';
+      const originalText = textSpan ? textSpan.textContent : '';
+      const originalTimeStr = timeDiv ? timeDiv.textContent : '';
+      entryEl.innerHTML = `
+        <input type="text" class="log-edit-speaker" value="${escapeHtml(originalSpeaker)}" placeholder="Speaker" />
+        <textarea class="log-edit-text" placeholder="Text">${escapeHtml(originalText)}</textarea>
+        <div class="log-time">${escapeHtml(originalTimeStr)}</div>
+        <div class="log-edit-actions">
+          <button type="button" class="log-save">Save</button>
+          <button type="button" class="log-cancel">Cancel</button>
+        </div>
+      `;
+      const speakerInput = entryEl.querySelector('.log-edit-speaker');
+      const textInput = entryEl.querySelector('.log-edit-text');
+      const saveBtn = entryEl.querySelector('.log-save');
+      const cancelBtn = entryEl.querySelector('.log-cancel');
+      speakerInput.focus();
+      function exitEdit(entry, timeDisplay) {
+        entryEl.outerHTML = renderLogEntry(entry, parseInt(index, 10), timeDisplay);
+      }
+      saveBtn.addEventListener('click', () => {
+        const speaker = speakerInput.value.trim();
+        const text = textInput.value.trim();
+        fetch('/conversation', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ index: parseInt(index, 10), speaker, text }),
+        }).then((r) => r.json()).then((data) => {
+          if (data.error) { console.warn('Update failed:', data.error); return; }
+          exitEdit({ speaker: data.entry.speaker, text: data.entry.text, timestamp: data.entry.timestamp });
+        }).catch((err) => console.warn('Update failed:', err));
+      });
+      cancelBtn.addEventListener('click', () => {
+        exitEdit({ speaker: originalSpeaker, text: originalText }, originalTimeStr);
+      });
+    });
     refreshConversationBtn.addEventListener('click', () => { refreshConversationBtn.disabled = true; loadConversation(); refreshConversationBtn.disabled = false; });
     loadConversation();
 
@@ -743,11 +805,11 @@
       if (!contextMenuSelection) return;
       const text = contextMenuSelection;
       contextMenuSpeak.disabled = true;
-      const voiceId = voiceSelect.value || null;
+      const voice = voiceSelect.value || null;
       fetch('/moderator/speak', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, voiceId: voiceId || undefined }),
+        body: JSON.stringify({ text, voice: voice || undefined }),
       }).then((r) => r.json()).then((data) => {
         if (data.error) console.warn('Moderator speak:', data.error);
       }).finally(() => { contextMenuSpeak.disabled = false; });
@@ -759,11 +821,11 @@
       if (!contextMenuSelection) return;
       const text = contextMenuSelection;
       contextMenuSpeakSearch.disabled = true;
-      const voiceId = voiceSelect.value || null;
+      const voice = voiceSelect.value || null;
       fetch('/moderator/speak-with-search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, voiceId: voiceId || undefined }),
+        body: JSON.stringify({ text, voice: voice || undefined }),
       }).then((r) => r.json()).then((data) => {
         if (data.error) console.warn('Speak with search:', data.error);
       }).finally(() => { contextMenuSpeakSearch.disabled = false; });
@@ -778,8 +840,10 @@
       emptyConversation.hidden = true;
       const el = document.createElement('div');
       el.className = 'log-entry';
+      el.dataset.index = String(logEntries.children.length);
       el.dataset.speaker = escapeHtml(entry.speaker || '');
       el.dataset.text = escapeHtml((entry.text || '').slice(0, 200));
+      el.title = 'Double-click to edit';
       el.innerHTML = `
         <span class="log-speaker">${escapeHtml(entry.speaker || '')}:</span><span class="log-text">${escapeHtml(entry.text || '')}</span>
         <div class="log-time">${formatTime(entry.timestamp || 0)}</div>

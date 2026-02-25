@@ -8,7 +8,7 @@ import OBSWebSocket from 'obs-websocket-js';
 import { config } from './config.js';
 
 const { obs } = config;
-const LOWER_THIRD_HIDE_AFTER_MS = 8000;
+const LOWER_THIRD_HIDE_AFTER_MS = 12000;
 let obsInstance = null;
 let connected = false;
 let hideLowerThirdTimeout = null;
