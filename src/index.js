@@ -16,6 +16,7 @@ import { startDirectorLoop, requestDirectorSuggestion } from './directorLoop.js'
 import { startSessionLog, getRecentForDirector } from './conversationLog.js';
 import { getFactCheck } from './modditClient.js';
 import { startDashboard } from './dashboard.js';
+import { setVoiceChannel as setSoundboardChannel } from './soundboard.js';
 
 const { discord } = config;
 
@@ -43,10 +44,11 @@ function doJoinChannel(voiceChannel) {
     guildId: voiceChannel.guild.id,
     adapterCreator: voiceChannel.guild.voiceAdapterCreator,
     selfMute: false,
-    selfDeafen: false,
+    selfDeaf: false, // undeafened so the bot can send soundboard sounds
   });
   setupVoiceReceive(connection, voiceChannel.guild);
   setTTSConnection(connection);
+  setSoundboardChannel(voiceChannel);
   startDirectorLoop();
   const { logPath, captionPath } = startSessionLog();
   console.log('Conversation log:', logPath);

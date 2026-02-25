@@ -43,6 +43,17 @@ export const config = {
   claims: {
     autoExtractMinLineLength: parseInt(process.env.CLAIM_EXTRACT_MIN_LINE_LENGTH || '20', 10),
   },
+  /** OBS WebSocket: lower-third browser source control (optional). */
+  obs: {
+    /** WebSocket URL (e.g. ws://192.168.0.106:4455). If unset, lower-third trigger is no-op. */
+    wsUrl: process.env.OBS_WS_URL || null,
+    /** Password for OBS WebSocket server. */
+    password: process.env.OBS_WS_PASSWORD || null,
+    /** Browser source name in OBS (e.g. "lower-third"). */
+    lowerThirdSourceName: process.env.OBS_LOWER_THIRD_SOURCE_NAME || 'lower-third',
+    /** Base URL for the chyron (query params first & second are appended). */
+    lowerThirdBaseUrl: process.env.OBS_LOWER_THIRD_BASE_URL || 'https://cdpn.io/pen/debug/mKbQGa/e70d51e92a36ff6eddedd781368ae604',
+  },
   /** ElevenLabs TTS (optional). If set, director suggestions are spoken in voice. */
   elevenlabs: {
     apiKey: process.env.ELEVENLABS_API_KEY || null,

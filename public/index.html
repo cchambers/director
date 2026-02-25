@@ -55,6 +55,7 @@
     }
     .header-voice { display: flex; align-items: center; gap: 0.5rem; }
     .header-voice label { font-size: 0.8rem; color: var(--muted); }
+    .header-toggle { display: flex; align-items: center; gap: 0.35rem; cursor: pointer; }
     .voice-select {
       font-family: inherit; font-size: 0.875rem;
       padding: 0.35rem 0.6rem;
@@ -272,6 +273,10 @@
       <span class="badge">LIVE</span>
     </div>
     <div class="header-voice">
+      <label class="header-toggle">
+        <input type="checkbox" id="transcriptionEnabledCheckbox" checked />
+        <span>Live transcribe</span>
+      </label>
       <label for="voiceSelect">Voice</label>
       <select id="voiceSelect" class="voice-select" aria-label="TTS voice"></select>
     </div>
@@ -318,6 +323,16 @@
           <input type="checkbox" id="videoAutoOpenFirst" />
           <span>Auto-open first result</span>
         </label>
+        <div class="video-search-bar" style="margin-top: 1rem;">
+          <input type="text" id="twitchChannelInput" placeholder="Twitch channel name" class="video-query-input" />
+          <button type="button" class="btn primary" id="twitchLoadBtn">Load stream</button>
+        </div>
+        <div style="margin-top: 1rem;">
+          <div class="column-title" style="padding: 0 0 0.5rem 0; border: none;"><span>Lower third (OBS)</span></div>
+          <input type="text" id="lowerThirdFirst" placeholder="First line" class="video-query-input" style="margin-bottom: 0.5rem;" />
+          <input type="text" id="lowerThirdSecond" placeholder="Second line" class="video-query-input" style="margin-bottom: 0.5rem;" />
+          <button type="button" class="btn primary" id="lowerThirdTriggerBtn">Trigger</button>
+        </div>
         <div class="empty" id="emptyVideo">Enter a topic and search to pull video links (opens in new tab).</div>
         <ul class="video-results" id="videoResults"></ul>
       </div>
@@ -344,9 +359,15 @@
     const contextMenuSpeak = document.getElementById('contextMenuSpeak');
     const contextMenuSpeakSearch = document.getElementById('contextMenuSpeakSearch');
     const voiceSelect = document.getElementById('voiceSelect');
+    const transcriptionEnabledCheckbox = document.getElementById('transcriptionEnabledCheckbox');
     const videoQueryInput = document.getElementById('videoQueryInput');
     const videoSearchBtn = document.getElementById('videoSearchBtn');
     const videoAutoOpenFirst = document.getElementById('videoAutoOpenFirst');
+    const twitchChannelInput = document.getElementById('twitchChannelInput');
+    const twitchLoadBtn = document.getElementById('twitchLoadBtn');
+    const lowerThirdFirst = document.getElementById('lowerThirdFirst');
+    const lowerThirdSecond = document.getElementById('lowerThirdSecond');
+    const lowerThirdTriggerBtn = document.getElementById('lowerThirdTriggerBtn');
     const emptyVideo = document.getElementById('emptyVideo');
     const videoResults = document.getElementById('videoResults');
 
@@ -354,6 +375,14 @@
     const VIDEO_WINDOW_NAME = 'podcastDirectorVideo';
     let openVideoInBrowser = null;
     fetch('/config').then((r) => r.json()).then((c) => { openVideoInBrowser = c.openVideoInBrowser || null; }).catch(() => {});
+    fetch('/transcription-enabled').then((r) => r.json()).then((d) => { transcriptionEnabledCheckbox.checked = d.enabled !== false; }).catch(() => {});
+    transcriptionEnabledCheckbox.addEventListener('change', () => {
+      fetch('/transcription-enabled', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: transcriptionEnabledCheckbox.checked }),
+      }).catch(() => {});
+    });
     function openVideoUrl(url) {
       if (openVideoInBrowser) {
         fetch('/open-in-browser', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) }).catch(() => {});
@@ -535,6 +564,37 @@
       if (!a || !videoResults.contains(a)) return;
       e.preventDefault();
       openVideoUrl(a.href);
+    });
+    twitchLoadBtn.addEventListener('click', () => {
+      let raw = twitchChannelInput.value.trim();
+      if (!raw) return;
+      let channel = raw;
+      try {
+        if (raw.includes('twitch.tv/')) {
+          const u = new URL(raw.startsWith('http') ? raw : 'https://' + raw);
+          channel = u.pathname.replace(/^\//, '').split('/')[0] || raw;
+        }
+      } catch (_) {}
+      channel = channel.replace(/[^a-zA-Z0-9_]/g, '');
+      if (!channel) return;
+      const twitchUrl = 'https://www.twitch.tv/' + channel;
+      openVideoUrl(twitchUrl);
+    });
+    lowerThirdTriggerBtn.addEventListener('click', async () => {
+      const first = lowerThirdFirst.value.trim();
+      const second = lowerThirdSecond.value.trim();
+      lowerThirdTriggerBtn.disabled = true;
+      try {
+        const res = await fetch('/lower-third', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ first, second }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (data.error) console.warn('Lower third:', data.error);
+      } finally {
+        lowerThirdTriggerBtn.disabled = false;
+      }
     });
     videoSearchBtn.addEventListener('click', async () => {
       const query = videoQueryInput.value.trim();

@@ -10,8 +10,12 @@ import { config } from './config.js';
 import { transcribeBuffer } from './transcribe.js';
 import { append } from './conversationLog.js';
 import { requestDirectorSuggestion } from './directorLoop.js';
+import { playSoundboardSound } from './soundboard.js';
+import { isLiveTranscriptionEnabled } from './transcriptionState.js';
 
 const { opusFrameSize, sampleRate, channels } = config.audio;
+const SOUNDBOARD_PHRASE = 'never gonna stop';
+const SOUNDBOARD_SOUND_ID = '1460124772145954857';
 const hostUserId = config.discord.hostUserId || null;
 const triggerPhrases = config.discord.directorTriggerPhrases || [];
 
@@ -71,6 +75,7 @@ export function setupVoiceReceive(connection, guild) {
       activeSpeakers.delete(userId);
       subscription.destroy();
       if (chunks.length === 0) return;
+      if (!isLiveTranscriptionEnabled()) return;
       const pcm = Buffer.concat(chunks);
       const text = await transcribeBuffer(pcm);
       if (text) {
@@ -80,6 +85,9 @@ export function setupVoiceReceive(connection, guild) {
             ? 'HOST'
             : member?.displayName ?? member?.user?.username ?? userId;
         append(speaker, text, { userId });
+        if (text.trim().toLowerCase().includes(SOUNDBOARD_PHRASE)) {
+          playSoundboardSound(SOUNDBOARD_SOUND_ID).catch((err) => console.warn('[Soundboard]', err.message));
+        }
         if (hostUserId && userId === hostUserId && triggerPhrases.length > 0) {
           const normalized = text.trim().toLowerCase().replace(/[.!?]+$/, '');
           if (triggerPhrases.includes(normalized)) {

@@ -12,11 +12,15 @@ import { config } from './config.js';
 const { elevenlabs } = config;
 import { getRecentForDirector, getRecentForClaimExtraction, resetClaimBuffer, reset as resetDirectorBuffer, getLog, onLogAppend } from './conversationLog.js';
 import { getFactCheck, getClaimExtraction, getFactCheckClaim, getDirectorSuggestion, getModeratorResponse } from './modditClient.js';
-import { getSearchContext, getVideoSearchResults } from './searchClient.js';
-import { speak as ttsSpeak } from './ttsPlayer.js';
+import { getSearchContext, getVideoSearchResults, getLatestVideoFromChannel } from './searchClient.js';
+import { speak as ttsSpeak, playLocalMp3 } from './ttsPlayer.js';
+import { showLowerThird } from './obsClient.js';
+import { getTranscriptionState, setLiveTranscriptionEnabled } from './transcriptionState.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const { port } = config.dashboard;
+
+const ONE_MOMENT_MP3 = 'src/responses/one-moment.mp3';
 
 /** @type {Array<{ type: 'suggestion'|'factcheck', text: string, at: number }>} */
 const recentItems = [];
@@ -58,16 +62,51 @@ function broadcast(entry) {
   });
 }
 
+/** Last topic we ran video search for (debounce same topic within 60s). */
+let lastVideoTopic = '';
+let lastVideoTopicAt = 0;
+const PULL_VIDEO_DEBOUNCE_MS = 60000;
+/** Match "pull (up) a video(s) of/on X" — only in the current message so we don't trigger on follow-ups like "mhmm". */
+const PULL_VIDEO_REGEX = /pull\s+(?:up\s+)?a\s+video?s?\s+(?:of|on|by)\s+(.+)/i;
+/** Match "play the latest video from X" / "latest video from X". */
+const LATEST_VIDEO_FROM_REGEX = /(?:play\s+)?(?:the\s+)?latest\s+video\s+from\s+(.+)/i;
+/** Debounce for "latest video from" (same channel within 60s). */
+let lastLatestVideoChannel = '';
+let lastLatestVideoChannelAt = 0;
+
 onLogAppend((entry) => {
   broadcast({ type: 'logEntry', entry: { speaker: entry.speaker, text: entry.text, timestamp: entry.timestamp } });
-  const pullVideoMatch = entry.text.match(/pull\s+(?:up\s+)?a\s+video\s+(?:of|on)\s+(.+)/i);
+  const pullVideoMatch = entry.text.match(PULL_VIDEO_REGEX);
   if (pullVideoMatch) {
-    const topic = pullVideoMatch[1].trim();
+    const topic = pullVideoMatch[1].trim().replace(/\s*\.\.\.?\s*$/, '').slice(0, 200);
+    if (!topic) return;
+    const now = Date.now();
+    if (topic === lastVideoTopic && now - lastVideoTopicAt <= PULL_VIDEO_DEBOUNCE_MS) return;
+    lastVideoTopic = topic;
+    lastVideoTopicAt = now;
+    playLocalMp3(ONE_MOMENT_MP3);
     getVideoSearchResults(topic).then((results) => {
       if (results && results.length > 0) {
         broadcast({ type: 'videoResults', results });
       }
     }).catch(() => {});
+    return;
+  }
+  const latestFromMatch = entry.text.match(LATEST_VIDEO_FROM_REGEX);
+  if (latestFromMatch) {
+    const channelName = latestFromMatch[1].trim().replace(/\s*\.\.\.?\s*$/, '').slice(0, 200);
+    if (!channelName) return;
+    const now = Date.now();
+    if (channelName === lastLatestVideoChannel && now - lastLatestVideoChannelAt <= PULL_VIDEO_DEBOUNCE_MS) return;
+    lastLatestVideoChannel = channelName;
+    lastLatestVideoChannelAt = now;
+    playLocalMp3(ONE_MOMENT_MP3);
+    getLatestVideoFromChannel(channelName).then((results) => {
+      if (results && results.length > 0) {
+        broadcast({ type: 'videoResults', results });
+      }
+    }).catch(() => {});
+    return;
   }
   const minLen = config.claims?.autoExtractMinLineLength ?? 0;
   if (minLen > 0 && entry.text.length > minLen) {
@@ -325,6 +364,52 @@ const server = http.createServer((req, res) => {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: err.message || 'Failed to open in browser' }));
       }
+    });
+    return;
+  }
+  if (url === '/transcription-enabled') {
+    if (req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(getTranscriptionState()));
+      return;
+    }
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk) => { body += chunk; });
+      req.on('end', () => {
+        let payload;
+        try {
+          payload = body ? JSON.parse(body) : {};
+        } catch {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid JSON' }));
+          return;
+        }
+        const enabled = payload.enabled !== false;
+        setLiveTranscriptionEnabled(enabled);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ enabled }));
+      });
+      return;
+    }
+  }
+  if (url === '/lower-third' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', async () => {
+      let payload;
+      try {
+        payload = body ? JSON.parse(body) : {};
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: 'Invalid JSON' }));
+        return;
+      }
+      const first = typeof payload.first === 'string' ? payload.first.trim() : '';
+      const second = typeof payload.second === 'string' ? payload.second.trim() : '';
+      const result = await showLowerThird(first, second);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result));
     });
     return;
   }

@@ -72,6 +72,12 @@ export function startSessionLog(logDir = 'logs') {
  */
 export function append(speaker, text, opts = {}) {
   const trimmed = text?.trim();
+  // #region agent log
+  const lower = trimmed.toLowerCase();
+  if (lower.includes('video') && lower.includes('pull')) {
+    fetch('http://127.0.0.1:7633/ingest/31b29ecb-377e-4b01-bcb2-5ab262f9a2f4',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'ef08e6'},body:JSON.stringify({sessionId:'ef08e6',location:'conversationLog.js:append',message:'Transcript contains pull+video',data:{textPreview:trimmed.slice(0,120),length:trimmed.length},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
+  }
+  // #endregion
   if (!trimmed) return;
   const now = Date.now();
   const entry = { speaker, text: trimmed, timestamp: now, userId: opts.userId };

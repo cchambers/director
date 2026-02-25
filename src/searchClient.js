@@ -72,35 +72,117 @@ export async function getSearchContext(query, options = {}) {
 }
 
 const VIDEO_SEARCH_MAX_RESULTS = 8;
-
-/** Domains to restrict video search to (actual video pages, not list/search pages). */
-const VIDEO_INCLUDE_DOMAINS = [
-  'youtube.com',
-  'www.youtube.com',
-  'vimeo.com',
-  'www.vimeo.com',
-  'dailymotion.com',
-  'www.dailymotion.com',
-  'twitch.tv',
-  'www.twitch.tv',
-];
+const YOUTUBE_SEARCH_URL = 'https://www.googleapis.com/youtube/v3/search';
 
 /**
- * Search for videos via Tavily: query "Video of: {query}" restricted to video-hosting domains
- * so results are individual videos rather than list pages.
- * @param {string} query - User's topic (e.g. "how to tie a tie")
+ * Search for videos via YouTube Data API v3. Returns actual YouTube search results (better relevance/recency than Tavily).
+ * Requires YOUTUBE_API_KEY in env (Google Cloud project with YouTube Data API v3 enabled).
+ * @param {string} query - User's topic (e.g. "gwar playing any song")
+ * @param {{ order?: 'relevance'|'date' }} [options] - order=date for newest first
  * @returns {Promise<Array<{ title: string, url: string }>>}
  */
-export async function getVideoSearchResults(query) {
+export async function getVideoSearchResults(query, options = {}) {
   const trimmed = query?.trim();
   if (!trimmed) return [];
-  const videoQuery = `Video of: ${trimmed}`;
-  const { sources } = await getSearchContext(videoQuery, {
-    maxResults: VIDEO_SEARCH_MAX_RESULTS,
-    includeDomains: VIDEO_INCLUDE_DOMAINS,
+  let apiKey = process.env.YOUTUBE_API_KEY?.trim();
+  if (apiKey) apiKey = apiKey.replace(/^["']|["']$/g, '');
+  if (!apiKey) {
+    console.warn('[Video search] YOUTUBE_API_KEY not set; cannot search YouTube.');
+    return [];
+  }
+  const params = new URLSearchParams({
+    part: 'snippet',
+    type: 'video',
+    maxResults: String(VIDEO_SEARCH_MAX_RESULTS),
+    q: trimmed.slice(0, 500),
+    key: apiKey,
   });
-  return sources.filter((s) => s.url?.trim()).map((s) => ({
-    title: (s.title && String(s.title).trim()) || s.url || 'Video',
-    url: String(s.url).trim(),
-  }));
+  if (options.order === 'date') params.set('order', 'date');
+  try {
+    const res = await fetch(`${YOUTUBE_SEARCH_URL}?${params.toString()}`);
+    if (!res.ok) {
+      const errText = await res.text();
+      const errBody = (() => { try { return JSON.parse(errText); } catch { return {}; } })();
+      const msg = errBody?.error?.message || errText || String(res.status);
+      console.warn('[Video search] YouTube API error:', res.status, msg);
+      return [];
+    }
+    const data = await res.json().catch(() => ({}));
+    const items = Array.isArray(data.items) ? data.items : [];
+    return items
+      .filter((item) => item.id?.videoId && item.snippet?.title)
+      .map((item) => ({
+        title: String(item.snippet.title).trim(),
+        url: `https://www.youtube.com/watch?v=${item.id.videoId}`,
+      }));
+  } catch (err) {
+    console.warn('[Video search]', err.message);
+    return [];
+  }
+}
+
+/**
+ * Find a channel by name/handle, then return that channel's latest upload.
+ * Uses YouTube Data API v3: search (type=channel) then search (channelId + order=date).
+ * Requires YOUTUBE_API_KEY in env.
+ * @param {string} channelQuery - Channel name or handle (e.g. "GWAR" or "gwarvevo")
+ * @returns {Promise<Array<{ title: string, url: string }>>} - One item (latest video) or []
+ */
+export async function getLatestVideoFromChannel(channelQuery) {
+  const trimmed = channelQuery?.trim();
+  if (!trimmed) return [];
+  let apiKey = process.env.YOUTUBE_API_KEY?.trim();
+  if (apiKey) apiKey = apiKey.replace(/^["']|["']$/g, '');
+  if (!apiKey) {
+    console.warn('[Video search] YOUTUBE_API_KEY not set; cannot search YouTube.');
+    return [];
+  }
+  try {
+    const params = new URLSearchParams({
+      part: 'snippet',
+      type: 'channel',
+      maxResults: '1',
+      q: trimmed.slice(0, 200),
+      key: apiKey,
+    });
+    const channelRes = await fetch(`${YOUTUBE_SEARCH_URL}?${params.toString()}`);
+    if (!channelRes.ok) {
+      const errText = await channelRes.text();
+      const errBody = (() => { try { return JSON.parse(errText); } catch { return {}; } })();
+      const msg = errBody?.error?.message || errText || String(channelRes.status);
+      console.warn('[Video search] YouTube channel search error:', channelRes.status, msg);
+      return [];
+    }
+    const channelData = await channelRes.json().catch(() => ({}));
+    const channelItems = Array.isArray(channelData.items) ? channelData.items : [];
+    const channelId = channelItems[0]?.id?.channelId;
+    if (!channelId) return [];
+
+    const videoParams = new URLSearchParams({
+      part: 'snippet',
+      type: 'video',
+      channelId,
+      order: 'date',
+      maxResults: '1',
+      key: apiKey,
+    });
+    const videoRes = await fetch(`${YOUTUBE_SEARCH_URL}?${videoParams.toString()}`);
+    if (!videoRes.ok) {
+      console.warn('[Video search] YouTube latest-video error:', videoRes.status);
+      return [];
+    }
+    const videoData = await videoRes.json().catch(() => ({}));
+    const videoItems = Array.isArray(videoData.items) ? videoData.items : [];
+    const video = videoItems[0];
+    if (!video?.id?.videoId || !video?.snippet?.title) return [];
+    return [
+      {
+        title: String(video.snippet.title).trim(),
+        url: `https://www.youtube.com/watch?v=${video.id.videoId}`,
+      },
+    ];
+  } catch (err) {
+    console.warn('[Video search] getLatestVideoFromChannel:', err.message);
+    return [];
+  }
 }
