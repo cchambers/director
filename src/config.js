@@ -63,7 +63,6 @@ export const config = {
      * modId is optional; when missing, MODERATOR_MOD_ID (env or default) is used for getModeratorResponse.
      */
     voices: {
-      Donut: { voiceId: 'USEQXnsXRJlw2k9LUzG4', modId: '523803a8-8f32-40a7-9fc8-5fe168632c90', store: true },
       Khi: { voiceId: 'Iq6TL7fCl0jSeSIIgGEG' },
       Ajit: { voiceId: 'pzxut4zZz4GImZNlqQ3H' },
       Rachel: { voiceId: '21m00Tcm4TlvDq8ikWAM' },
@@ -74,6 +73,7 @@ export const config = {
       Minerva: { voiceId: '0E0gsPZaYRcRuLRIO5iU' },
       OldMan: { voiceId: 'NOpBlnGInO9m6vDvFkFC' },
       OldMan2: { voiceId: 'SGfyGfQJBs0O7iPKEkB5' },
+      Donut: { voiceId: 'USEQXnsXRJlw2k9LUzG4', modId: '523803a8-8f32-40a7-9fc8-5fe168632c90', store: true },
     },
   },
   /** Default mod for moderator/speak when a voice does not specify modId (env MODERATOR_MOD_ID or fallback). */
