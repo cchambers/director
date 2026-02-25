@@ -105,6 +105,7 @@ onLogAppend((entry) => {
     getVideoSearchResults(topic).then((results) => {
       if (results && results.length > 0) {
         broadcast({ type: 'videoResults', results });
+        if (results[0].url) broadcast({ type: 'videoUrl', url: results[0].url });
       }
     }).catch(() => {});
     return;
@@ -121,6 +122,7 @@ onLogAppend((entry) => {
     getLatestVideoFromChannel(channelName).then((results) => {
       if (results && results.length > 0) {
         broadcast({ type: 'videoResults', results });
+        if (results[0].url) broadcast({ type: 'videoUrl', url: results[0].url });
       }
     }).catch(() => {});
     return;
@@ -395,7 +397,9 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({ error: 'Invalid URL' }));
         return;
       }
-      if (!VIDEO_OPEN_ALLOWED_HOSTS.has(parsed.hostname)) {
+      const hostAllowed = VIDEO_OPEN_ALLOWED_HOSTS.has(parsed.hostname) ||
+        (parsed.hostname === 'localhost' && parsed.pathname === '/video-viewer.html');
+      if (!hostAllowed) {
         res.writeHead(403, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'URL not in allowed video hosts' }));
         return;
@@ -479,6 +483,11 @@ const server = http.createServer((req, res) => {
   }
   if (url === '/index.html' || url === '/') {
     const htmlPath = path.join(__dirname, '..', 'public', 'index.html');
+    serveFile(res, htmlPath, 'text/html');
+    return;
+  }
+  if (url.startsWith('/video-viewer.html')) {
+    const htmlPath = path.join(__dirname, '..', 'public', 'video-viewer.html');
     serveFile(res, htmlPath, 'text/html');
     return;
   }

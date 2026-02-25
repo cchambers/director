@@ -494,7 +494,7 @@
         fetch('/open-in-browser', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) }).catch(() => {});
         return;
       }
-      window.open(url, VIDEO_WINDOW_NAME, 'noopener');
+      window.open('/video-viewer.html?url=' + encodeURIComponent(url), VIDEO_WINDOW_NAME, 'noopener');
     }
 
     fetch('/voices').then((r) => r.json()).then((data) => {
@@ -767,7 +767,7 @@
         const results = Array.isArray(data.results) ? data.results : [];
         emptyVideo.hidden = results.length > 0;
         if (results.length === 0) emptyVideo.textContent = 'No videos found. Try another query.';
-        videoResults.innerHTML = results.map((r) => `<li><a href="${escapeHtml(r.url)}" target="${escapeHtml(VIDEO_WINDOW_NAME)}" rel="noopener">${escapeHtml(r.title)}</a></li>`).join('');
+        videoResults.innerHTML = results.map((r) => `<li><a href="/video-viewer.html?url=${encodeURIComponent(r.url)}" target="${escapeHtml(VIDEO_WINDOW_NAME)}" rel="noopener">${escapeHtml(r.title)}</a></li>`).join('');
         if (videoAutoOpenFirst.checked && results.length > 0 && results[0].url) {
           openVideoUrl(results[0].url);
         }
@@ -867,7 +867,7 @@
         }
         if (data.type === 'videoResults' && Array.isArray(data.results) && data.results.length) {
           emptyVideo.hidden = true;
-          videoResults.innerHTML = data.results.map((r) => `<li><a href="${escapeHtml(r.url)}" target="${escapeHtml(VIDEO_WINDOW_NAME)}" rel="noopener">${escapeHtml(r.title)}</a></li>`).join('');
+          videoResults.innerHTML = data.results.map((r) => `<li><a href="/video-viewer.html?url=${encodeURIComponent(r.url)}" target="${escapeHtml(VIDEO_WINDOW_NAME)}" rel="noopener">${escapeHtml(r.title)}</a></li>`).join('');
           if (videoAutoOpenFirst.checked && data.results[0] && data.results[0].url) {
             openVideoUrl(data.results[0].url);
           }
