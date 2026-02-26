@@ -114,6 +114,43 @@ export function append(speaker, text, opts = {}) {
   }
 }
 
+/** Format ms (Date.now()) as local time HH:MM:SS for topic log lines. */
+function formatTimeLocal(ms) {
+  const d = new Date(ms);
+  const h = d.getHours();
+  const m = d.getMinutes();
+  const s = d.getSeconds();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(h)}:${pad(m)}:${pad(s)}`;
+}
+
+/**
+ * Append a topic shift to the conversation log (and session .log file). Not added to director/claim buffers.
+ * @param {number} at - Timestamp (e.g. Date.now())
+ * @param {string} topic - Topic text
+ */
+export function appendTopicEntry(at, topic) {
+  const trimmed = (topic ?? '').trim();
+  if (!trimmed) return;
+  const timeStr = formatTimeLocal(at);
+  const text = `${timeStr} — ${trimmed}`;
+  const entry = { speaker: 'Topic', text, timestamp: at };
+  log.push(entry);
+  logAppendListeners.forEach((fn) => {
+    try {
+      fn(entry);
+    } catch (err) {
+      console.warn('[Conversation log] append listener error:', err.message);
+    }
+  });
+  if (sessionLogPath) {
+    const line = `Topic: ${text}\n`;
+    fs.appendFile(sessionLogPath, line, 'utf8', (err) => {
+      if (err) console.warn('[Conversation log file]', err.message);
+    });
+  }
+}
+
 /**
  * Rewrite the session .log file with current log contents (used after an edit).
  * Writes header + one line per entry: "speaker: text\n".

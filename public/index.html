@@ -221,6 +221,10 @@
     .verdict-badge.false { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
     .verdict-badge.subjective { background: rgba(234, 179, 8, 0.2); color: #eab308; }
     .claim-result details { margin-top: 0.5rem; }
+    .topic-current { font-size: 1.05rem; font-weight: 500; margin-top: 0.25rem; }
+    .topic-history { list-style: none; padding: 0; margin: 0.5rem 0 0; font-size: 0.9rem; }
+    .topic-history li { padding: 0.35rem 0; border-bottom: 1px solid var(--border); }
+    .topic-time { color: var(--muted); font-size: 0.8rem; margin-right: 0.5rem; }
     .claim-result summary { cursor: pointer; font-size: 0.875rem; color: var(--muted); }
     .claim-result .fact-box-header { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.5rem; }
     .claim-result .fact-box-header strong { color: var(--text); }
@@ -366,6 +370,7 @@
       </h2>
       <div class="tools-tabs">
         <button type="button" class="tools-tab active" data-tab="claims" id="toolsTabClaims">Claims</button>
+        <button type="button" class="tools-tab" data-tab="topic" id="toolsTabTopic">Topic</button>
         <button type="button" class="tools-tab" data-tab="video" id="toolsTabVideo">Video</button>
         <button type="button" class="tools-tab" data-tab="obs" id="toolsTabOBS">OBS</button>
       </div>
@@ -378,8 +383,27 @@
           <div class="empty" id="emptyClaims">Click &quot;Refresh claims&quot; to extract claims from the conversation.</div>
         </div>
       </div>
+      <div class="tools-panel" id="toolsPanelTopic" data-panel="topic">
+        <div class="column-scroll" id="scrollTopic">
+          <div class="video-search-bar" style="margin-bottom: 1rem;">
+            <input type="text" id="topicManualInput" placeholder="Set topic manually" class="video-query-input" />
+            <button type="button" class="btn primary" id="topicSetBtn">Set topic</button>
+          </div>
+          <div class="topic-current-wrap" style="margin-bottom: 1rem;">
+            <label style="font-size: 0.8rem; color: var(--muted);">Current topic</label>
+            <div class="topic-current" id="topicCurrent">—</div>
+          </div>
+          <label style="font-size: 0.8rem; color: var(--muted);">Topic shifts</label>
+          <ul class="topic-history" id="topicHistory"></ul>
+          <div class="empty" id="emptyTopic">Topic updates as the conversation progresses. Load <code>logs/current-topic.txt</code> in OBS.</div>
+        </div>
+      </div>
       <div class="tools-panel" id="toolsPanelVideo" data-panel="video">
         <div class="column-scroll" id="scrollVideo">
+          <div class="video-search-bar" style="margin-bottom: 0.5rem;">
+            <input type="text" id="videoUrlInput" placeholder="Paste YouTube or video URL" class="video-query-input" />
+            <button type="button" class="btn primary" id="videoLoadUrlBtn">Load</button>
+          </div>
           <div class="video-search-bar">
             <input type="text" id="videoQueryInput" placeholder="e.g. how to tie a tie" class="video-query-input" />
             <button type="button" class="btn primary" id="videoSearchBtn">Search</button>
@@ -415,6 +439,7 @@
     <button type="button" id="contextMenuSpeak" role="menuitem">Speak with moderator</button>
     <button type="button" id="contextMenuSpeakSearch" role="menuitem">Speak with search</button>
     <button type="button" id="contextMenuFactCheck" role="menuitem">Fact check</button>
+    <button type="button" id="contextMenuPaste" role="menuitem">Paste</button>
   </div>
   <script>
     const cardsDirector = document.getElementById('cardsDirector');
@@ -432,8 +457,12 @@
     const contextMenu = document.getElementById('contextMenu');
     const contextMenuSpeak = document.getElementById('contextMenuSpeak');
     const contextMenuSpeakSearch = document.getElementById('contextMenuSpeakSearch');
+    const contextMenuFactCheck = document.getElementById('contextMenuFactCheck');
+    const contextMenuPaste = document.getElementById('contextMenuPaste');
     const voiceSelect = document.getElementById('voiceSelect');
     const transcriptionEnabledCheckbox = document.getElementById('transcriptionEnabledCheckbox');
+    const videoUrlInput = document.getElementById('videoUrlInput');
+    const videoLoadUrlBtn = document.getElementById('videoLoadUrlBtn');
     const videoQueryInput = document.getElementById('videoQueryInput');
     const videoSearchBtn = document.getElementById('videoSearchBtn');
     const videoAutoOpenFirst = document.getElementById('videoAutoOpenFirst');
@@ -450,11 +479,18 @@
     const toolsColumn = document.getElementById('toolsColumn');
     const toolsToggle = document.getElementById('toolsToggle');
     const toolsTabClaims = document.getElementById('toolsTabClaims');
+    const toolsTabTopic = document.getElementById('toolsTabTopic');
     const toolsTabVideo = document.getElementById('toolsTabVideo');
     const toolsTabOBS = document.getElementById('toolsTabOBS');
     const toolsPanelClaims = document.getElementById('toolsPanelClaims');
+    const toolsPanelTopic = document.getElementById('toolsPanelTopic');
     const toolsPanelVideo = document.getElementById('toolsPanelVideo');
     const toolsPanelOBS = document.getElementById('toolsPanelOBS');
+    const topicCurrent = document.getElementById('topicCurrent');
+    const topicHistory = document.getElementById('topicHistory');
+    const emptyTopic = document.getElementById('emptyTopic');
+    const topicManualInput = document.getElementById('topicManualInput');
+    const topicSetBtn = document.getElementById('topicSetBtn');
 
     settingsTrigger.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -465,12 +501,45 @@
     settingsPanel.addEventListener('click', (e) => e.stopPropagation());
 
     function setToolsTab(activeTab) {
-      [toolsTabClaims, toolsTabVideo, toolsTabOBS].forEach((t) => t.classList.toggle('active', t.dataset.tab === activeTab));
-      [toolsPanelClaims, toolsPanelVideo, toolsPanelOBS].forEach((p) => p.classList.toggle('active', p.dataset.panel === activeTab));
+      [toolsTabClaims, toolsTabTopic, toolsTabVideo, toolsTabOBS].forEach((t) => t.classList.toggle('active', t.dataset.tab === activeTab));
+      [toolsPanelClaims, toolsPanelTopic, toolsPanelVideo, toolsPanelOBS].forEach((p) => p.classList.toggle('active', p.dataset.panel === activeTab));
     }
     toolsTabClaims.addEventListener('click', () => setToolsTab('claims'));
+    toolsTabTopic.addEventListener('click', () => setToolsTab('topic'));
     toolsTabVideo.addEventListener('click', () => setToolsTab('video'));
     toolsTabOBS.addEventListener('click', () => setToolsTab('obs'));
+
+    function updateTopicPanel(topic, historyList) {
+      topicCurrent.textContent = topic || '—';
+      if (historyList && historyList.length > 0) {
+        emptyTopic.hidden = true;
+        topicHistory.innerHTML = historyList.map((h) => {
+          const t = new Date(h.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          return `<li><span class="topic-time">${escapeHtml(t)}</span> ${escapeHtml(h.topic)}</li>`;
+        }).join('');
+        topicHistory.hidden = false;
+      } else {
+        topicHistory.hidden = true;
+        emptyTopic.hidden = !topic;
+      }
+    }
+    fetch('/topic').then((r) => r.json()).then((data) => updateTopicPanel(data.topic, data.history)).catch(() => {});
+    function submitManualTopic() {
+      const topic = topicManualInput.value.trim();
+      if (!topic) return;
+      topicSetBtn.disabled = true;
+      fetch('/topic', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic }),
+      }).then((r) => r.json()).then((data) => {
+        if (data.error) return;
+        updateTopicPanel(data.topic, data.history);
+        topicManualInput.value = '';
+      }).finally(() => { topicSetBtn.disabled = false; });
+    }
+    topicSetBtn.addEventListener('click', submitManualTopic);
+    topicManualInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submitManualTopic(); });
 
     toolsToggle.addEventListener('click', () => {
       toolsColumn.classList.toggle('collapsed');
@@ -758,6 +827,25 @@
         lowerThirdTriggerBtn.disabled = false;
       }
     });
+    videoLoadUrlBtn.addEventListener('click', () => {
+      const raw = videoUrlInput.value.trim();
+      if (!raw) return;
+      const urls = raw.split(/\s+/).filter(Boolean);
+      const url = urls[0];
+      videoLoadUrlBtn.disabled = true;
+      fetch('/video/load', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(urls.length > 1 ? { urls } : { url }),
+      }).then((r) => r.json()).then((data) => {
+        if (!data.error) {
+          videoUrlInput.value = urls.length > 1 ? urls.slice(1).join(' ') : '';
+        }
+      }).finally(() => { videoLoadUrlBtn.disabled = false; });
+    });
+    videoUrlInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') videoLoadUrlBtn.click();
+    });
     videoSearchBtn.addEventListener('click', async () => {
       const query = videoQueryInput.value.trim();
       if (!query) return;
@@ -781,12 +869,16 @@
     // setInterval(loadConversation, 2000);
 
     let contextMenuSelection = '';
+    let contextMenuPasteTarget = null;
     document.addEventListener('contextmenu', (e) => {
       const sel = window.getSelection();
       contextMenuSelection = (sel && sel.toString()) ? sel.toString().trim() : '';
       contextMenuSpeak.disabled = !contextMenuSelection;
       contextMenuSpeakSearch.disabled = !contextMenuSelection;
       contextMenuFactCheck.disabled = !contextMenuSelection;
+      const active = document.activeElement;
+      contextMenuPasteTarget = (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) ? active : null;
+      contextMenuPaste.disabled = !contextMenuPasteTarget;
       if (!contextMenu.classList.contains('show')) {
         contextMenu.classList.add('show');
         contextMenu.style.left = e.clientX + 'px';
@@ -848,6 +940,22 @@
       }).finally(() => { contextMenuFactCheck.disabled = false; });
     });
 
+    contextMenuPaste.addEventListener('click', (e) => {
+      e.stopPropagation();
+      hideContextMenu();
+      const target = contextMenuPasteTarget;
+      if (!target || (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA')) return;
+      navigator.clipboard.readText().then((text) => {
+        if (typeof text !== 'string') return;
+        const start = target.selectionStart ?? target.value.length;
+        const end = target.selectionEnd ?? start;
+        const value = target.value;
+        target.value = value.slice(0, start) + text + value.slice(end);
+        target.selectionStart = target.selectionEnd = start + text.length;
+        target.dispatchEvent(new Event('input', { bubbles: true }));
+      }).catch(() => {});
+    });
+
     let conversationColumnHover = false;
     scrollConversation.addEventListener('mouseenter', () => { conversationColumnHover = true; });
     scrollConversation.addEventListener('mouseleave', () => { conversationColumnHover = false; });
@@ -892,6 +1000,7 @@
         }
         if (data.type === 'suggestion' && data.text) addCard(data.text, data.at || Date.now(), 'suggestion');
         else if (data.type === 'factcheck' && data.text) addCard(data.text, data.at || Date.now(), 'factcheck');
+        if (data.type === 'topic') updateTopicPanel(data.topic, data.history);
       } catch (_) {}
     };
     ev.onerror = () => {

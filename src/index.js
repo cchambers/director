@@ -15,7 +15,7 @@ import { setConnection as setTTSConnection } from './ttsPlayer.js';
 import { startDirectorLoop, requestDirectorSuggestion } from './directorLoop.js';
 import { startSessionLog, getRecentForDirector } from './conversationLog.js';
 import { getFactCheck } from './modditClient.js';
-import { startDashboard } from './dashboard.js';
+import { startDashboard, loadVideoUrl } from './dashboard.js';
 import { setVoiceChannel as setSoundboardChannel } from './soundboard.js';
 
 const { discord } = config;
@@ -148,6 +148,23 @@ client.on(Events.InteractionCreate, async (interaction) => {
         ? `🔍 **Fact-check:**\n\n${result}`
         : 'No fact-check result.';
     await interaction.editReply({ content });
+    return;
+  }
+
+  if (interaction.commandName === 'video') {
+    const urlOption = interaction.options.get('url');
+    const raw = urlOption?.value?.trim() ?? '';
+    if (!raw) {
+      await interaction.reply({ content: 'Provide a video URL (e.g. https://youtu.be/xxx).', flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const urls = raw.split(/\s+/).filter(Boolean);
+    const first = urls[0];
+    loadVideoUrl(first);
+    const msg = urls.length > 1
+      ? `Loading first video in dashboard. (${urls.length} URLs pasted; use the dashboard to load more.)`
+      : 'Loading video in dashboard.';
+    await interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
   }
 });
 

@@ -45,6 +45,15 @@ export const config = {
   claims: {
     autoExtractMinLineLength: parseInt(process.env.CLAIM_EXTRACT_MIN_LINE_LENGTH || '20', 10),
   },
+  /** Topic tracker: detect topic shifts and write to a file for OBS. */
+  topic: {
+    /** Moddit mod ID for topic detection. */
+    modId: process.env.TOPIC_MOD_ID || 'd90f8d0e-0154-46ca-a1cb-aa7db01a6d11',
+    /** Seconds between topic checks when conversation has new content. */
+    intervalSec: parseInt(process.env.TOPIC_INTERVAL_SEC || '45', 10),
+    /** Set to false to disable topic tracking. */
+    enabled: process.env.TOPIC_ENABLED !== 'false',
+  },
   /** OBS WebSocket: lower-third browser source control (optional). */
   obs: {
     /** WebSocket URL (e.g. ws://192.168.0.106:4455). If unset, lower-third trigger is no-op. */

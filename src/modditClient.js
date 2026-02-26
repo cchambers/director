@@ -17,6 +17,40 @@ const CLAIM_EXTRACTOR_MOD_ID = '657f34c9-0afe-4455-a95c-76e4cc200787';
 const MODERATOR_MOD_ID = '1c45d7e7-0130-4083-ad27-976a6fa5a584';
 
 /**
+ * Ask the topic mod for the current topic given previous topic and conversation log.
+ * Input format: previous_topic: ...\n\nconversation_log:\n[Speaker] text\n...
+ * @param {string} previousTopic - Current/last topic (or empty if none)
+ * @param {string} conversationLog - Formatted log lines e.g. "[HOST] line1\n[GUEST] line2"
+ * @returns {Promise<{ topic?: string, error?: string }>} - Response topic string or error
+ */
+export async function getTopicUpdate(previousTopic, conversationLog) {
+  const modId = config.topic?.modId ?? 'd90f8d0e-0154-46ca-a1cb-aa7db01a6d11';
+  const input = `previous_topic: ${previousTopic || '(none)'}\n\nconversation_log:\n${conversationLog || ''}`;
+  const body = JSON.stringify({
+    apiKey: process.env.MODDIT_API_KEY,
+    mod: modId,
+    input,
+    store: true,
+  });
+  try {
+    const res = await fetch(baseUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      return { error: `HTTP ${res.status}: ${text}` };
+    }
+    const data = await res.json().catch(() => ({}));
+    const topic = (data.response ?? '').trim();
+    return { topic: topic || null };
+  } catch (err) {
+    return { error: err.message };
+  }
+}
+
+/**
  * @param {Array<{ speaker: string, text: string, timestamp?: string }>} messages - Recent conversation
  * @returns {Promise<{ suggestion?: string, error?: string }>}
  */

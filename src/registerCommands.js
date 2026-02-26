@@ -36,6 +36,18 @@ const commands = [
     name: 'fc',
     description: 'Fact-check the recent conversation using Moddit',
   },
+  {
+    name: 'video',
+    description: 'Load a video in the dashboard viewer',
+    options: [
+      {
+        name: 'url',
+        type: 3, // STRING
+        description: 'Video URL (e.g. https://youtu.be/xxx). Paste multiple space-separated; first loads.',
+        required: true,
+      },
+    ],
+  },
 ];
 
 const rest = new REST().setToken(token);

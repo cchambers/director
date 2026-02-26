@@ -1,12 +1,12 @@
 # Podcast Director (Discord)
 
-Node.js bot that joins a Discord voice channel, transcribes who said what, logs the conversation, and sends it to your **Moddit** endpoint for director suggestions. It also serves a **dashboard** at `http://localhost:8765` (configurable) for the conversation log, director suggestions, fact-check, claims, video search, and “speak as” voices. Optional TTS (ElevenLabs), OBS lower-third, and a video viewer (YouTube/Twitch embed) for easy next-video loading.
+Node.js bot that joins a Discord voice channel, transcribes who said what, logs the conversation, and sends it to your **Moddit** endpoint for director suggestions. It also serves a **dashboard** at `http://localhost:8765` (configurable) for the conversation log, director suggestions, fact-check, claims, topic tracker, video search, and “speak as” voices. Optional TTS (ElevenLabs), OBS lower-third, and a video viewer (YouTube/Twitch embed) for easy next-video loading.
 
 - **Voice only** (Discord voice channel).
 - **Per-speaker** via Discord’s per-user receive streams (no ML diarization).
 - **Transcription**: Deepgram (pre-recorded API on each speaking turn).
 - **Director**: POST recent conversation to Moddit; suggestions appear in the dashboard (and optionally console).
-- **Dashboard**: Conversation (editable), suggestions, fact-check, claims, video search, OBS lower-third, voice selection for “Speak” / “Speak with search”.
+- **Dashboard**: Conversation (editable), suggestions, fact-check, claims, topic tracker, video search, OBS lower-third, voice selection for “Speak” / “Speak with search”.
 
 ## Requirements
 
@@ -61,6 +61,7 @@ URL: `http://localhost:{DASHBOARD_PORT}` (default 8765).
 - **Direction** – Director suggestion cards. Use the Suggestions button, slash command, or say a trigger phrase in voice.
 - **Tools**
   - **Claims** – Extract claims from the conversation, then fact-check individual claims (Tavily optional).
+  - **Topic** – Current topic and timestamped topic shifts. Updated periodically from conversation via a Moddit topic mod. Writes `logs/current-topic.txt` (load in OBS).
   - **Video** – Search (YouTube API). Voice triggers: “pull (up) a video of/on X”, “(play) the latest video from X”. Results open in the video viewer; first result can auto-open.
   - **OBS** – Lower-third: set first/second line and trigger the browser source.
   - **Voice** dropdown – Choose voice for “Speak” and “Speak with search” (right-click selected text → Speak / Speak with search). Each voice can use a different Moddit mod for “speak as”.
@@ -87,6 +88,9 @@ In config, `elevenlabs.voices` is a map: name → `voiceId` string or `{ voiceId
 | `MODDIT_CONTEXT_MESSAGES` | Last N messages sent to director (default 20) |
 | `MODDIT_SUGGESTION_INTERVAL_SEC` | Seconds between director calls (default 30) |
 | `MODERATOR_MOD_ID` | Optional; default mod for moderator/speak when a voice has no `modId` |
+| `TOPIC_MOD_ID` | Optional; Moddit mod for topic detection (default built-in) |
+| `TOPIC_INTERVAL_SEC` | Seconds between topic checks (default 45) |
+| `TOPIC_ENABLED` | Set to `false` to disable topic tracking |
 | `DASHBOARD_PORT` | Dashboard HTTP port (default 8765) |
 | `DEEPGRAM_API_KEY` | Deepgram API key |
 | `DEEPGRAM_MIN_AUDIO_MS` | Ignore utterances shorter than this (default 500) |
@@ -110,12 +114,14 @@ All Moddit requests use `MODDIT_API_KEY` in the body. See [src/modditClient.js](
 - **Moderator/speak** – POST with input text and mod id (from voice config or `MODERATOR_MOD_ID`); returns text to speak. TTS (ElevenLabs) plays it in the selected voice.
 - **Fact-check** – POST with conversation; returns fact-check result.
 - **Claim extraction** – POST with conversation; returns JSON array of claims (used for Claims tool).
+- **Topic** – POST with `previous_topic` and `conversation_log`; returns current topic (used for Topic tracker; writes `logs/current-topic.txt`).
 
 ## Project layout
 
 - **Core**: [src/index.js](src/index.js) (Discord client, /join, voice receive, starts dashboard and director loop), [src/voiceHandler.js](src/voiceHandler.js), [src/transcribe.js](src/transcribe.js), [src/conversationLog.js](src/conversationLog.js) (in-memory log, session file, SRT, editable via `updateEntry`), [src/directorLoop.js](src/directorLoop.js), [src/config.js](src/config.js).
-- **Moddit**: [src/modditClient.js](src/modditClient.js) (director suggestion, moderator response with optional modId, fact-check, claim extraction).
-- **Dashboard**: [src/dashboard.js](src/dashboard.js) (HTTP server, SSE, routes for conversation, voices, speak, video search, open-in-browser, video-viewer.html).
+- **Moddit**: [src/modditClient.js](src/modditClient.js) (director suggestion, moderator response with optional modId, fact-check, claim extraction, topic update).
+- **Topic**: [src/topicTracker.js](src/topicTracker.js) (current topic, history, writes `logs/current-topic.txt` for OBS).
+- **Dashboard**: [src/dashboard.js](src/dashboard.js) (HTTP server, SSE, routes for conversation, voices, speak, topic, video search, open-in-browser, video-viewer.html).
 - **TTS / search / OBS**: [src/ttsPlayer.js](src/ttsPlayer.js), [src/elevenlabsClient.js](src/elevenlabsClient.js), [src/searchClient.js](src/searchClient.js) (YouTube search, latest-from-channel), [src/obsClient.js](src/obsClient.js), [src/transcriptionState.js](src/transcriptionState.js), [src/soundboard.js](src/soundboard.js).
 - **Public**: [public/index.html](public/index.html) (dashboard UI), [public/video-viewer.html](public/video-viewer.html) (embed iframe + SSE for videoUrl).
 - **Slash**: [src/registerCommands.js](src/registerCommands.js).

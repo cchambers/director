@@ -27,11 +27,12 @@ function resolveVoice(voiceName) {
   if (val === undefined) return null;
   return normalizeVoiceEntry(val, defaultModId);
 }
-import { getRecentForDirector, getRecentForClaimExtraction, resetClaimBuffer, reset as resetDirectorBuffer, getLog, onLogAppend, updateEntry } from './conversationLog.js';
-import { getFactCheck, getClaimExtraction, getFactCheckClaim, getDirectorSuggestion, getModeratorResponse } from './modditClient.js';
+import { getRecentForDirector, getRecentForClaimExtraction, resetClaimBuffer, reset as resetDirectorBuffer, getLog, onLogAppend, updateEntry, appendTopicEntry } from './conversationLog.js';
+import { getFactCheck, getClaimExtraction, getFactCheckClaim, getDirectorSuggestion, getModeratorResponse, getTopicUpdate } from './modditClient.js';
 import { getSearchContext, getVideoSearchResults, getLatestVideoFromChannel } from './searchClient.js';
 import { speak as ttsSpeak, playLocalMp3 } from './ttsPlayer.js';
 import { showLowerThird } from './obsClient.js';
+import { getCurrentTopic, setTopic, getHistory } from './topicTracker.js';
 import { getTranscriptionState, setLiveTranscriptionEnabled } from './transcriptionState.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -79,6 +80,27 @@ function broadcast(entry) {
   });
 }
 
+const VIDEO_OPEN_ALLOWED_HOSTS = new Set([
+  'youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be',
+  'vimeo.com', 'www.vimeo.com', 'player.vimeo.com',
+  'dailymotion.com', 'www.dailymotion.com',
+  'twitch.tv', 'www.twitch.tv', 'player.twitch.tv',
+]);
+
+/**
+ * Load a video URL in the dashboard viewer (broadcasts videoUrl over SSE). Call from Discord /video or dashboard UI.
+ * @param {string} url - Full URL (e.g. https://youtu.be/xxx)
+ */
+export function loadVideoUrl(url) {
+  const u = (url ?? '').trim();
+  if (!u.startsWith('http://') && !u.startsWith('https://')) return;
+  try {
+    const parsed = new URL(u);
+    if (!VIDEO_OPEN_ALLOWED_HOSTS.has(parsed.hostname)) return;
+    broadcast({ type: 'videoUrl', url: u });
+  } catch (_) {}
+}
+
 /** Last topic we ran video search for (debounce same topic within 60s). */
 let lastVideoTopic = '';
 let lastVideoTopicAt = 0;
@@ -90,6 +112,10 @@ const LATEST_VIDEO_FROM_REGEX = /(?:play\s+)?(?:the\s+)?latest\s+video\s+from\s+
 /** Debounce for "latest video from" (same channel within 60s). */
 let lastLatestVideoChannel = '';
 let lastLatestVideoChannelAt = 0;
+
+/** Topic tracker: only run when log has new content since last check. */
+let lastTopicCheckLogLength = 0;
+let topicCheckInProgress = false;
 
 onLogAppend((entry) => {
   broadcast({ type: 'logEntry', entry: { speaker: entry.speaker, text: entry.text, timestamp: entry.timestamp } });
@@ -319,6 +345,40 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify({ voices }));
     return;
   }
+  if (url === '/topic' && req.method === 'GET') {
+    const topic = getCurrentTopic();
+    const history = getHistory();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ topic, history }));
+    return;
+  }
+  if (url === '/topic' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let payload;
+      try {
+        payload = body ? JSON.parse(body) : {};
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        return;
+      }
+      const topic = typeof payload.topic === 'string' ? payload.topic.trim() : '';
+      if (!topic) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Missing topic' }));
+        return;
+      }
+      const at = Date.now();
+      appendTopicEntry(at, topic);
+      setTopic(topic, at);
+      broadcast({ type: 'topic', topic, at, history: getHistory() });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ topic, history: getHistory() }));
+    });
+    return;
+  }
   if (url === '/moderator/speak' && req.method === 'POST') {
     let body = '';
     req.on('data', (chunk) => { body += chunk; });
@@ -391,12 +451,6 @@ const server = http.createServer((req, res) => {
     }));
     return;
   }
-  const VIDEO_OPEN_ALLOWED_HOSTS = new Set([
-    'youtube.com', 'www.youtube.com', 'm.youtube.com', 'youtu.be',
-    'vimeo.com', 'www.vimeo.com', 'player.vimeo.com',
-    'dailymotion.com', 'www.dailymotion.com',
-    'twitch.tv', 'www.twitch.tv', 'player.twitch.tv',
-  ]);
   if (url === '/open-in-browser' && req.method === 'POST') {
     const browser = config.dashboard.openVideoInBrowser;
     if (!browser?.trim()) {
@@ -489,6 +543,46 @@ const server = http.createServer((req, res) => {
     });
     return;
   }
+  if (url === '/video/load' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let payload;
+      try {
+        payload = body ? JSON.parse(body) : {};
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        return;
+      }
+      let raw = typeof payload.url === 'string' ? payload.url.trim() : '';
+      if (!raw && Array.isArray(payload.urls) && payload.urls.length > 0) {
+        raw = typeof payload.urls[0] === 'string' ? payload.urls[0].trim() : '';
+      }
+      if (!raw) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Missing url or urls' }));
+        return;
+      }
+      let parsed;
+      try {
+        parsed = new URL(raw);
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid URL' }));
+        return;
+      }
+      if (!VIDEO_OPEN_ALLOWED_HOSTS.has(parsed.hostname)) {
+        res.writeHead(403, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'URL not in allowed video hosts (YouTube, Vimeo, Twitch, Dailymotion)' }));
+        return;
+      }
+      loadVideoUrl(raw);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, url: raw }));
+    });
+    return;
+  }
   if (url === '/video/search' && req.method === 'POST') {
     let body = '';
     req.on('data', (chunk) => { body += chunk; });
@@ -531,6 +625,32 @@ export function startDashboard() {
     if (config.dashboard.openOnStart) {
       const url = `http://localhost:${port}`;
       import('open').then(({ default: open }) => open(url)).catch((err) => console.warn('[Dashboard] Could not open in browser:', err.message));
+    }
+    const topicCfg = config.topic;
+    if (topicCfg?.enabled !== false && topicCfg?.intervalSec > 0) {
+      const intervalMs = topicCfg.intervalSec * 1000;
+      const contextMessages = config.moddit?.contextMessages ?? 20;
+      setInterval(() => {
+        if (topicCheckInProgress) return;
+        const entries = getLog();
+        if (entries.length < 2) return;
+        if (entries.length === lastTopicCheckLogLength) return;
+        lastTopicCheckLogLength = entries.length;
+        topicCheckInProgress = true;
+        const recent = entries.slice(-contextMessages);
+        const conversationLog = recent.map((e) => `[${e.speaker}] ${e.text}`).join('\n');
+        const previousTopic = getCurrentTopic();
+        getTopicUpdate(previousTopic, conversationLog).then(({ topic: newTopic, error }) => {
+          topicCheckInProgress = false;
+          if (error) return;
+          if (newTopic && newTopic !== previousTopic) {
+            const at = Date.now();
+            appendTopicEntry(at, newTopic);
+            setTopic(newTopic, at);
+            broadcast({ type: 'topic', topic: newTopic, at, history: getHistory() });
+          }
+        }).catch(() => { topicCheckInProgress = false; });
+      }, intervalMs);
     }
   });
   server.on('error', (err) => {
