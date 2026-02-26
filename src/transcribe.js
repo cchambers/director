@@ -5,6 +5,7 @@
 
 import { createClient } from '@deepgram/sdk';
 import { config } from './config.js';
+import { increment } from './stats.js';
 
 const { apiKey, minAudioMs } = config.deepgram;
 const { sampleRate, channels } = config.audio;
@@ -36,7 +37,9 @@ export async function transcribeBuffer(pcmBuffer) {
       return null;
     }
     const text = result?.results?.channels?.[0]?.alternatives?.[0]?.transcript;
-    return text?.trim() || null;
+    const transcript = text?.trim() || null;
+    if (transcript) increment('transcriptions');
+    return transcript;
   } catch (err) {
     console.error('Transcribe error:', err);
     return null;

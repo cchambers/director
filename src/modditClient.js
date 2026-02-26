@@ -4,6 +4,7 @@
  */
 
 import { config } from './config.js';
+import { increment } from './stats.js';
 
 const { baseUrl, sessionId } = config.moddit;
 
@@ -24,6 +25,7 @@ const MODERATOR_MOD_ID = '1c45d7e7-0130-4083-ad27-976a6fa5a584';
  * @returns {Promise<{ topic?: string, error?: string }>} - Response topic string or error
  */
 export async function getTopicUpdate(previousTopic, conversationLog) {
+  increment('topicUpdate');
   const modId = config.topic?.modId ?? 'd90f8d0e-0154-46ca-a1cb-aa7db01a6d11';
   const input = `previous_topic: ${previousTopic || '(none)'}\n\nconversation_log:\n${conversationLog || ''}`;
   const body = JSON.stringify({
@@ -55,6 +57,7 @@ export async function getTopicUpdate(previousTopic, conversationLog) {
  * @returns {Promise<{ suggestion?: string, error?: string }>}
  */
 export async function getDirectorSuggestion(messages) {
+  increment('directorSuggestion');
   const url = `${baseUrl}`;
 
   const context = messages.map(m => `${m.speaker}: ${m.text}`).join('\n');
@@ -90,10 +93,12 @@ ${context}
  * Get moderator "voice" response: send context from UI, mod returns text to speak. TTS plays separately.
  * Uses MODERATOR_MOD_ID (config.moderatorModId) unless options.modId is provided (e.g. from voice selection).
  * @param {string} context - Selected/highlighted text or other context from the UI
- * @param {{ modId?: string }} [options] - Optional modId; when missing, config.moderatorModId is used
+ * @param {{ modId?: string, statsLabel?: 'moderatorSpeak'|'moderatorSpeakWithSearch' }} [options] - Optional modId; statsLabel for session stats
  * @returns {Promise<{ response?: string, error?: string }>}
  */
 export async function getModeratorResponse(context, options) {
+  const label = options?.statsLabel;
+  if (label === 'moderatorSpeak' || label === 'moderatorSpeakWithSearch') increment(label);
   const modId = options?.modId ?? config.moderatorModId ?? MODERATOR_MOD_ID;
   const url = `${baseUrl}`;
   const body = JSON.stringify({
@@ -125,6 +130,7 @@ export async function getModeratorResponse(context, options) {
  * @returns {Promise<{ result?: string, error?: string }>}
  */
 export async function getFactCheck(messages) {
+  increment('factCheck');
   const url = `${baseUrl}`;
   const context = messages.map((m) => `${m.speaker}: ${m.text}`).join('\n');
   const body = JSON.stringify({
@@ -156,6 +162,7 @@ export async function getFactCheck(messages) {
  * @returns {Promise<{ claims?: Array<{ claim: string, type: string, speaker?: string | null }>, error?: string }>}
  */
 export async function getClaimExtraction(messages) {
+  increment('claimExtraction');
   const url = `${baseUrl}`;
   const context = messages.map((m) => `${m.speaker}: ${m.text}`).join('\n');
   const body = JSON.stringify({
@@ -206,6 +213,7 @@ export async function getClaimExtraction(messages) {
  * @returns {Promise<{ result?: string, verdict?: 'TRUE'|'FALSE'|'SUBJECTIVE', error?: string }>}
  */
 export async function getFactCheckClaim(claim, options = {}) {
+  increment('factCheckClaim');
   const { getSearchContext } = await import('./searchClient.js');
   let input = `Fact-check the following claim. Respond with your verdict (TRUE, FALSE, or SUBJECTIVE) and a brief explanation.\n\nClaim: ${claim}`;
   let sources = [];

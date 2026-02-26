@@ -11,6 +11,7 @@ import fs from 'fs';
 import path from 'path';
 import { getTTSStream } from './elevenlabsClient.js';
 import { isAnyoneSpeaking } from './voiceHandler.js';
+import { increment } from './stats.js';
 
 /** @type {import('@discordjs/voice').VoiceConnection | null} */
 let currentConnection = null;
@@ -97,6 +98,7 @@ export function clearConnection() {
 export async function speak(text, options = {}) {
   if (!currentConnection || !audioPlayer) return;
   ttsQueue.push({ type: 'speak', text, options: { ...options } });
+  increment('tts');
   processQueue();
 }
 

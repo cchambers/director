@@ -225,6 +225,17 @@
     .topic-history { list-style: none; padding: 0; margin: 0.5rem 0 0; font-size: 0.9rem; }
     .topic-history li { padding: 0.35rem 0; border-bottom: 1px solid var(--border); }
     .topic-time { color: var(--muted); font-size: 0.8rem; margin-right: 0.5rem; }
+    .stats-heading { font-size: 0.95rem; font-weight: 600; margin: 0 0 0.75rem; color: var(--muted); }
+    .stats-donut-wrap { display: flex; justify-content: center; margin-bottom: 1rem; }
+    .stats-donut { width: 140px; height: 140px; }
+    .stats-donut-empty { }
+    .stats-donut-center { font-family: 'JetBrains Mono', monospace; font-size: 1.1rem; font-weight: 600; fill: var(--text); }
+    .stats-donut-center-label { font-size: 0.65rem; fill: var(--muted); }
+    .stats-list { list-style: none; padding: 0; margin: 0; font-size: 0.85rem; }
+    .stats-list li { display: flex; justify-content: space-between; align-items: center; padding: 0.35rem 0; border-bottom: 1px solid var(--border); gap: 0.5rem; }
+    .stats-list li:last-child { border-bottom: none; }
+    .stats-list .stats-label { color: var(--muted); }
+    .stats-list .stats-value { font-family: 'JetBrains Mono', monospace; font-weight: 600; color: var(--text); }
     .claim-result summary { cursor: pointer; font-size: 0.875rem; color: var(--muted); }
     .claim-result .fact-box-header { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.5rem; }
     .claim-result .fact-box-header strong { color: var(--text); }
@@ -374,6 +385,7 @@
         <button type="button" class="tools-tab active" data-tab="claims" id="toolsTabClaims">Claims</button>
         <button type="button" class="tools-tab" data-tab="topic" id="toolsTabTopic">Topic</button>
         <button type="button" class="tools-tab" data-tab="video" id="toolsTabVideo">Video</button>
+        <button type="button" class="tools-tab" data-tab="stats" id="toolsTabStats">Stats</button>
         <button type="button" class="tools-tab" data-tab="obs" id="toolsTabOBS">OBS</button>
       </div>
       <div class="tools-panel active" id="toolsPanelClaims" data-panel="claims">
@@ -431,6 +443,20 @@
           </div>
           <div class="empty" id="emptyVideo">Enter a topic and search to pull video links (opens in new tab).</div>
           <ul class="video-results" id="videoResults"></ul>
+        </div>
+      </div>
+      <div class="tools-panel" id="toolsPanelStats" data-panel="stats">
+        <div class="column-scroll">
+          <h3 class="stats-heading">Session stats</h3>
+          <div class="stats-donut-wrap" aria-hidden="true">
+            <svg class="stats-donut" viewBox="0 0 120 120" id="statsDonutSvg">
+              <circle class="stats-donut-empty" cx="60" cy="60" r="48" fill="none" stroke="var(--border)" stroke-width="16" />
+              <g id="statsDonutSegments"></g>
+              <text class="stats-donut-center" x="60" y="56" text-anchor="middle">0</text>
+              <text class="stats-donut-center-label" x="60" y="70" text-anchor="middle">Session</text>
+            </svg>
+          </div>
+          <ul class="stats-list" id="statsList" aria-label="Session stats"></ul>
         </div>
       </div>
       <div class="tools-panel" id="toolsPanelOBS" data-panel="obs">
@@ -499,11 +525,16 @@
     const toolsTabClaims = document.getElementById('toolsTabClaims');
     const toolsTabTopic = document.getElementById('toolsTabTopic');
     const toolsTabVideo = document.getElementById('toolsTabVideo');
+    const toolsTabStats = document.getElementById('toolsTabStats');
     const toolsTabOBS = document.getElementById('toolsTabOBS');
     const toolsPanelClaims = document.getElementById('toolsPanelClaims');
     const toolsPanelTopic = document.getElementById('toolsPanelTopic');
     const toolsPanelVideo = document.getElementById('toolsPanelVideo');
+    const toolsPanelStats = document.getElementById('toolsPanelStats');
     const toolsPanelOBS = document.getElementById('toolsPanelOBS');
+    const statsDonutSegments = document.getElementById('statsDonutSegments');
+    const statsDonutSvg = document.getElementById('statsDonutSvg');
+    const statsList = document.getElementById('statsList');
     const topicCurrent = document.getElementById('topicCurrent');
     const topicHistory = document.getElementById('topicHistory');
     const emptyTopic = document.getElementById('emptyTopic');
@@ -518,13 +549,79 @@
     document.addEventListener('click', () => { headerSettings.classList.remove('open'); settingsTrigger.setAttribute('aria-expanded', 'false'); });
     settingsPanel.addEventListener('click', (e) => e.stopPropagation());
 
+    const STATS_ORDER = [
+      { key: 'transcriptions', label: 'Deepgram transcriptions' },
+      { key: 'tts', label: 'TTS messages' },
+      { key: 'directorSuggestion', label: 'Director suggestions' },
+      { key: 'moderatorSpeak', label: 'Moderator speak' },
+      { key: 'moderatorSpeakWithSearch', label: 'Moderator speak (with search)' },
+      { key: 'factCheck', label: 'Fact check (full)' },
+      { key: 'claimExtraction', label: 'Claim extraction' },
+      { key: 'factCheckClaim', label: 'Fact check (claim)' },
+      { key: 'topicUpdate', label: 'Topic update' },
+    ];
+    const STATS_COLORS = [
+      '#22c55e', '#3b82f6', '#64748b', '#a78bfa', '#c084fc', '#f59e0b', '#f97316', '#ec4899', '#14b8a6',
+    ];
+    function renderStats(data) {
+      if (!data) return;
+      const total = STATS_ORDER.reduce((s, { key }) => s + (data[key] || 0), 0);
+      const centerText = statsDonutSvg.querySelector('.stats-donut-center');
+      const centerLabel = statsDonutSvg.querySelector('.stats-donut-center-label');
+      const emptyCircle = statsDonutSvg.querySelector('.stats-donut-empty');
+      centerText.textContent = total;
+      emptyCircle.style.visibility = total === 0 ? 'visible' : 'hidden';
+      statsDonutSegments.innerHTML = '';
+      if (total > 0) {
+        const cx = 60, cy = 60, r = 48, stroke = 16;
+        const toRad = (deg) => (deg - 90) * Math.PI / 180;
+        const toXY = (deg) => ({ x: cx + r * Math.cos(toRad(deg)), y: cy + r * Math.sin(toRad(deg)) });
+        let startAngle = 0;
+        STATS_ORDER.forEach(({ key }, i) => {
+          const count = data[key] || 0;
+          if (count <= 0) return;
+          const angle = (count / total) * 360;
+          const endAngle = startAngle + angle;
+          const start = toXY(startAngle);
+          const end = toXY(endAngle);
+          const large = angle > 180 ? 1 : 0;
+          const d = `M ${start.x} ${start.y} A ${r} ${r} 0 ${large} 1 ${end.x} ${end.y}`;
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          path.setAttribute('d', d);
+          path.setAttribute('fill', 'none');
+          path.setAttribute('stroke', STATS_COLORS[i % STATS_COLORS.length]);
+          path.setAttribute('stroke-width', String(stroke));
+          path.setAttribute('stroke-linecap', 'round');
+          path.setAttribute('title', STATS_ORDER.find(o => o.key === key).label + ': ' + count);
+          statsDonutSegments.appendChild(path);
+          startAngle = endAngle;
+        });
+      }
+      statsList.innerHTML = STATS_ORDER.map(({ key, label }) => {
+        const val = data[key] ?? 0;
+        return `<li><span class="stats-label">${escapeHtml(label)}</span><span class="stats-value">${val}</span></li>`;
+      }).join('');
+    }
+    function fetchStats() {
+      fetch('/stats').then((r) => r.json()).then(renderStats).catch(() => {});
+    }
+    let statsPollId = null;
     function setToolsTab(activeTab) {
-      [toolsTabClaims, toolsTabTopic, toolsTabVideo, toolsTabOBS].forEach((t) => t.classList.toggle('active', t.dataset.tab === activeTab));
-      [toolsPanelClaims, toolsPanelTopic, toolsPanelVideo, toolsPanelOBS].forEach((p) => p.classList.toggle('active', p.dataset.panel === activeTab));
+      [toolsTabClaims, toolsTabTopic, toolsTabVideo, toolsTabStats, toolsTabOBS].forEach((t) => t.classList.toggle('active', t.dataset.tab === activeTab));
+      [toolsPanelClaims, toolsPanelTopic, toolsPanelVideo, toolsPanelStats, toolsPanelOBS].forEach((p) => p.classList.toggle('active', p.dataset.panel === activeTab));
+      if (activeTab === 'stats') {
+        fetchStats();
+        if (statsPollId) clearInterval(statsPollId);
+        statsPollId = setInterval(fetchStats, 8000);
+      } else if (statsPollId) {
+        clearInterval(statsPollId);
+        statsPollId = null;
+      }
     }
     toolsTabClaims.addEventListener('click', () => setToolsTab('claims'));
     toolsTabTopic.addEventListener('click', () => setToolsTab('topic'));
     toolsTabVideo.addEventListener('click', () => setToolsTab('video'));
+    toolsTabStats.addEventListener('click', () => setToolsTab('stats'));
     toolsTabOBS.addEventListener('click', () => setToolsTab('obs'));
 
     function updateTopicPanel(topic, historyList) {

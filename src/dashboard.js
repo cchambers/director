@@ -34,6 +34,7 @@ import { speak as ttsSpeak, playLocalMp3 } from './ttsPlayer.js';
 import { showLowerThird } from './obsClient.js';
 import { getCurrentTopic, setTopic, getHistory } from './topicTracker.js';
 import { getTranscriptionState, setLiveTranscriptionEnabled } from './transcriptionState.js';
+import { getStats } from './stats.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const { port } = config.dashboard;
@@ -445,7 +446,7 @@ const server = http.createServer((req, res) => {
       const inputWithLog = conversationBlock
         ? `Recent conversation:\n${conversationBlock}\n\nUser selection: ${text || 'No context provided.'}`
         : (text || 'No context provided.');
-      getModeratorResponse(inputWithLog, { modId }).then(({ response, error }) => {
+      getModeratorResponse(inputWithLog, { modId, statsLabel: 'moderatorSpeak' }).then(({ response, error }) => {
         if (error) {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ response: null, error }));
@@ -487,7 +488,7 @@ const server = http.createServer((req, res) => {
       const inputWithLog = conversationBlock
         ? `Recent conversation:\n${conversationBlock}\n\nUser selection (with search):\n${enrichedInput}`
         : enrichedInput;
-      getModeratorResponse(inputWithLog, { modId }).then(({ response, error }) => {
+      getModeratorResponse(inputWithLog, { modId, statsLabel: 'moderatorSpeakWithSearch' }).then(({ response, error }) => {
         if (error) {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ response: null, error, sources: sources ?? [] }));
@@ -501,6 +502,11 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({ response: response ?? null, sources: sources ?? [] }));
       });
     });
+    return;
+  }
+  if (url === '/stats' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(getStats()));
     return;
   }
   if (url === '/config' && req.method === 'GET') {
