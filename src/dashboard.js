@@ -27,7 +27,7 @@ function resolveVoice(voiceName) {
   if (val === undefined) return null;
   return normalizeVoiceEntry(val, defaultModId);
 }
-import { getRecentForDirector, getRecentForClaimExtraction, resetClaimBuffer, reset as resetDirectorBuffer, getLog, onLogAppend, updateEntry, appendTopicEntry } from './conversationLog.js';
+import { getRecentForDirector, getRecentForClaimExtraction, resetClaimBuffer, reset as resetDirectorBuffer, getLog, onLogAppend, updateEntry, appendTopicEntry, append } from './conversationLog.js';
 import { getFactCheck, getClaimExtraction, getFactCheckClaim, getDirectorSuggestion, getModeratorResponse, getTopicUpdate } from './modditClient.js';
 import { getSearchContext, getVideoSearchResults, getLatestVideoFromChannel } from './searchClient.js';
 import { speak as ttsSpeak, playLocalMp3 } from './ttsPlayer.js';
@@ -39,6 +39,16 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const { port } = config.dashboard;
 
 const ONE_MOMENT_MP3 = 'src/responses/one-moment.mp3';
+
+/** Max recent log entries to send as context with "Speak with moderator". */
+const SPEAK_LOG_LIMIT = 10;
+
+/** Format recent conversation log for moderator context. */
+function getConversationContextForSpeak() {
+  const entries = getLog().slice(-SPEAK_LOG_LIMIT);
+  if (entries.length === 0) return '';
+  return entries.map((e) => `[${e.speaker}] ${e.text}`).join('\n');
+}
 
 /** @type {Array<{ type: 'suggestion'|'factcheck', text: string, at: number }>} */
 const recentItems = [];
@@ -87,6 +97,29 @@ const VIDEO_OPEN_ALLOWED_HOSTS = new Set([
   'twitch.tv', 'www.twitch.tv', 'player.twitch.tv',
 ]);
 
+/** In-memory video queue; next URL is broadcast when viewer calls POST /video/ended. */
+const videoQueue = [];
+
+/** Currently playing (or last loaded) video URL; cleared on stop. */
+let currentVideoUrl = null;
+
+const LOG_DIR = path.join(__dirname, '..', 'logs');
+const VIDEO_QUEUE_FILENAME = 'video-queue.txt';
+
+function writeVideoQueueFile() {
+  try {
+    fs.mkdirSync(LOG_DIR, { recursive: true });
+    const lines = [];
+    lines.push(currentVideoUrl ? `Now: ${currentVideoUrl}` : 'Now: —');
+    videoQueue.forEach((u) => lines.push(`Up next: ${u}`));
+    fs.writeFileSync(path.join(LOG_DIR, VIDEO_QUEUE_FILENAME), lines.join('\n'), 'utf8');
+  } catch (_) {}
+}
+
+function broadcastVideoQueue() {
+  broadcast({ type: 'videoQueue', current: currentVideoUrl, queue: [...videoQueue] });
+}
+
 /**
  * Load a video URL in the dashboard viewer (broadcasts videoUrl over SSE). Call from Discord /video or dashboard UI.
  * @param {string} url - Full URL (e.g. https://youtu.be/xxx)
@@ -97,8 +130,20 @@ export function loadVideoUrl(url) {
   try {
     const parsed = new URL(u);
     if (!VIDEO_OPEN_ALLOWED_HOSTS.has(parsed.hostname)) return;
+    currentVideoUrl = u;
     broadcast({ type: 'videoUrl', url: u });
+    writeVideoQueueFile();
+    broadcastVideoQueue();
   } catch (_) {}
+}
+
+function isAllowedVideoUrl(u) {
+  try {
+    const parsed = new URL(u);
+    return VIDEO_OPEN_ALLOWED_HOSTS.has(parsed.hostname);
+  } catch {
+    return false;
+  }
 }
 
 /** Last topic we ran video search for (debounce same topic within 60s). */
@@ -396,13 +441,20 @@ const server = http.createServer((req, res) => {
       const entry = resolveVoice(voiceName);
       const voiceId = entry?.voiceId ?? null;
       const modId = entry?.modId ?? null;
-      getModeratorResponse(text || 'No context provided.', { modId }).then(({ response, error }) => {
+      const conversationBlock = getConversationContextForSpeak();
+      const inputWithLog = conversationBlock
+        ? `Recent conversation:\n${conversationBlock}\n\nUser selection: ${text || 'No context provided.'}`
+        : (text || 'No context provided.');
+      getModeratorResponse(inputWithLog, { modId }).then(({ response, error }) => {
         if (error) {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ response: null, error }));
           return;
         }
-        if (response) ttsSpeak(response, { voiceId: voiceId || undefined }).catch((err) => console.warn('[TTS]', err.message));
+        if (response) {
+          append('AI', response);
+          ttsSpeak(response, { voiceId: voiceId || undefined }).catch((err) => console.warn('[TTS]', err.message));
+        }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ response: response ?? null }));
       });
@@ -431,13 +483,20 @@ const server = http.createServer((req, res) => {
       const enrichedInput = contextText
         ? `${input}\n\nSearch context:\n${contextText}`
         : input;
-      getModeratorResponse(enrichedInput, { modId }).then(({ response, error }) => {
+      const conversationBlock = getConversationContextForSpeak();
+      const inputWithLog = conversationBlock
+        ? `Recent conversation:\n${conversationBlock}\n\nUser selection (with search):\n${enrichedInput}`
+        : enrichedInput;
+      getModeratorResponse(inputWithLog, { modId }).then(({ response, error }) => {
         if (error) {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ response: null, error, sources: sources ?? [] }));
           return;
         }
-        if (response) ttsSpeak(response, { voiceId: voiceId || undefined }).catch((err) => console.warn('[TTS]', err.message));
+        if (response) {
+          append('AI', response);
+          ttsSpeak(response, { voiceId: voiceId || undefined }).catch((err) => console.warn('[TTS]', err.message));
+        }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ response: response ?? null, sources: sources ?? [] }));
       });
@@ -555,32 +614,101 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({ error: 'Invalid JSON' }));
         return;
       }
-      let raw = typeof payload.url === 'string' ? payload.url.trim() : '';
-      if (!raw && Array.isArray(payload.urls) && payload.urls.length > 0) {
-        raw = typeof payload.urls[0] === 'string' ? payload.urls[0].trim() : '';
-      }
-      if (!raw) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Missing url or urls' }));
+      const urlsArray = Array.isArray(payload.urls)
+        ? payload.urls.map((u) => (typeof u === 'string' ? u.trim() : '')).filter(Boolean)
+        : [];
+      const singleUrl = typeof payload.url === 'string' ? payload.url.trim() : '';
+
+      if (urlsArray.length > 0) {
+        videoQueue.length = 0;
+        const valid = urlsArray.filter((u) => isAllowedVideoUrl(u));
+        if (valid.length === 0) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'No URLs in allowed video hosts (YouTube, Vimeo, Twitch, Dailymotion)' }));
+          return;
+        }
+        const first = valid.shift();
+        valid.forEach((u) => videoQueue.push(u));
+        loadVideoUrl(first);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, url: first, queueLength: videoQueue.length }));
         return;
       }
-      let parsed;
-      try {
-        parsed = new URL(raw);
-      } catch {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Invalid URL' }));
+      if (singleUrl) {
+        if (!isAllowedVideoUrl(singleUrl)) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'URL not in allowed video hosts (YouTube, Vimeo, Twitch, Dailymotion)' }));
+          return;
+        }
+        videoQueue.length = 0;
+        loadVideoUrl(singleUrl);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, url: singleUrl }));
         return;
       }
-      if (!VIDEO_OPEN_ALLOWED_HOSTS.has(parsed.hostname)) {
-        res.writeHead(403, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'URL not in allowed video hosts (YouTube, Vimeo, Twitch, Dailymotion)' }));
-        return;
-      }
-      loadVideoUrl(raw);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, url: raw }));
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Missing url or urls' }));
     });
+    return;
+  }
+  if (url === '/video/ended' && req.method === 'POST') {
+    const next = videoQueue.shift();
+    if (next) {
+      loadVideoUrl(next);
+    } else {
+      currentVideoUrl = null;
+      writeVideoQueueFile();
+      broadcastVideoQueue();
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, next: next ?? null, queueLength: videoQueue.length }));
+    return;
+  }
+  if (url === '/video/queue' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ current: currentVideoUrl, queue: [...videoQueue] }));
+    return;
+  }
+  if (url === '/video/next' && req.method === 'POST') {
+    const next = videoQueue.shift();
+    if (next) {
+      loadVideoUrl(next);
+    } else {
+      currentVideoUrl = null;
+      writeVideoQueueFile();
+      broadcastVideoQueue();
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, next: next ?? null, queueLength: videoQueue.length }));
+    return;
+  }
+  if (url === '/video/play' && req.method === 'POST') {
+    if (currentVideoUrl) {
+      broadcast({ type: 'videoUrl', url: currentVideoUrl });
+      writeVideoQueueFile();
+      broadcastVideoQueue();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, url: currentVideoUrl }));
+      return;
+    }
+    if (videoQueue.length > 0) {
+      const first = videoQueue.shift();
+      loadVideoUrl(first);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, url: first, queueLength: videoQueue.length }));
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, message: 'Nothing to play' }));
+    return;
+  }
+  if (url === '/video/stop' && req.method === 'POST') {
+    currentVideoUrl = null;
+    broadcast({ type: 'videoStop' });
+    writeVideoQueueFile();
+    broadcastVideoQueue();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
     return;
   }
   if (url === '/video/search' && req.method === 'POST') {
@@ -630,11 +758,13 @@ export function startDashboard() {
     if (topicCfg?.enabled !== false && topicCfg?.intervalSec > 0) {
       const intervalMs = topicCfg.intervalSec * 1000;
       const contextMessages = config.moddit?.contextMessages ?? 20;
+      const minNewMessages = Math.max(0, topicCfg.minNewMessages ?? 5);
       setInterval(() => {
         if (topicCheckInProgress) return;
         const entries = getLog();
         if (entries.length < 2) return;
-        if (entries.length === lastTopicCheckLogLength) return;
+        const newSinceLast = entries.length - lastTopicCheckLogLength;
+        if (newSinceLast < minNewMessages) return;
         lastTopicCheckLogLength = entries.length;
         topicCheckInProgress = true;
         const recent = entries.slice(-contextMessages);

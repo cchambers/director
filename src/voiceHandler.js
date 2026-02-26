@@ -80,10 +80,11 @@ export function setupVoiceReceive(connection, guild) {
       const text = await transcribeBuffer(pcm);
       if (text) {
         const member = guild.members.cache.get(userId);
+        const displayName = member?.displayName ?? member?.user?.username ?? userId;
         const speaker =
           hostUserId && userId === hostUserId
-            ? 'HOST'
-            : member?.displayName ?? member?.user?.username ?? userId;
+            ? `[HOST] ${displayName}`
+            : displayName;
         append(speaker, text, { userId });
         if (text.trim().toLowerCase().includes(SOUNDBOARD_PHRASE)) {
           playSoundboardSound(SOUNDBOARD_SOUND_ID).catch((err) => console.warn('[Soundboard]', err.message));

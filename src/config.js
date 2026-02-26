@@ -51,6 +51,8 @@ export const config = {
     modId: process.env.TOPIC_MOD_ID || 'd90f8d0e-0154-46ca-a1cb-aa7db01a6d11',
     /** Seconds between topic checks when conversation has new content. */
     intervalSec: parseInt(process.env.TOPIC_INTERVAL_SEC || '45', 10),
+    /** Only run topic check when at least this many new messages since last check. */
+    minNewMessages: parseInt(process.env.TOPIC_MIN_NEW_MESSAGES || '5', 10),
     /** Set to false to disable topic tracking. */
     enabled: process.env.TOPIC_ENABLED !== 'false',
   },
@@ -74,7 +76,9 @@ export const config = {
      * modId is optional; when missing, MODERATOR_MOD_ID (env or default) is used for getModeratorResponse.
      */
     voices: {
-      Khi: { voiceId: 'Iq6TL7fCl0jSeSIIgGEG' },
+      Immy: { voiceId: 'syeFW5TCGfY8Hs5y9tPE', modId: '18628a72-2d18-4448-b589-e57a619fb996' },
+      Khi: { voiceId: 'Iq6TL7fCl0jSeSIIgGEG', modId: '5aa2a339-3c73-4e06-a53a-2aa8a82f2b07' },
+      Elise: { voiceId: 'sjcPVAfTExhVDMuP2Myl'},
       Ajit: { voiceId: 'pzxut4zZz4GImZNlqQ3H' },
       Rachel: { voiceId: '21m00Tcm4TlvDq8ikWAM' },
       Adam: { voiceId: 'pNInz6obpgDQGcFmaJgB' },
