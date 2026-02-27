@@ -105,6 +105,25 @@ const videoQueue = [];
 /** Currently playing (or last loaded) video URL; cleared on stop. */
 let currentVideoUrl = null;
 
+/** Session log of videos played (loaded into viewer). Cleared on server restart. */
+const videoPlayedLog = [];
+
+/** Extract YouTube video ID from URL for thumbnail derivation. */
+function getYouTubeVideoId(url) {
+  try {
+    const u = new URL(url);
+    if (u.hostname === 'youtu.be') return u.pathname.slice(1).split('/')[0] || null;
+    if (u.hostname.includes('youtube.com')) return u.searchParams.get('v') || null;
+  } catch (_) {}
+  return null;
+}
+
+/** Derive YouTube thumbnail URL when we only have the video URL. */
+function getYouTubeThumbnail(url) {
+  const id = getYouTubeVideoId(url);
+  return id ? `https://img.youtube.com/vi/${id}/mqdefault.jpg` : null;
+}
+
 const LOG_DIR = path.join(__dirname, '..', 'logs');
 const VIDEO_QUEUE_FILENAME = 'video-queue.txt';
 
@@ -125,17 +144,29 @@ function broadcastVideoQueue() {
 /**
  * Load a video URL in the dashboard viewer (broadcasts videoUrl over SSE). Call from Discord /video or dashboard UI.
  * @param {string} url - Full URL (e.g. https://youtu.be/xxx)
+ * @param {{ title?: string, thumbnail?: string }} [opts] - Optional title and thumbnail (e.g. from search results)
  */
-export function loadVideoUrl(url) {
+export function loadVideoUrl(url, opts = {}) {
   const u = (url ?? '').trim();
   if (!u.startsWith('http://') && !u.startsWith('https://')) return;
   try {
     const parsed = new URL(u);
     if (!VIDEO_OPEN_ALLOWED_HOSTS.has(parsed.hostname)) return;
     currentVideoUrl = u;
+    const thumbnail = opts.thumbnail || getYouTubeThumbnail(u);
+    const entry = {
+      url: u,
+      title: opts.title || null,
+      thumbnail: thumbnail || null,
+      playedAt: Date.now(),
+    };
+    videoPlayedLog.push(entry);
+    broadcast({ type: 'videoPlayedLog', played: [...videoPlayedLog] });
     broadcast({ type: 'videoUrl', url: u });
     writeVideoQueueFile();
     broadcastVideoQueue();
+    const logText = opts.title ? `Loaded video: ${opts.title}` : `Loaded video: ${u}`;
+    append('Video', logText.slice(0, 500));
   } catch (_) {}
 }
 
@@ -178,7 +209,8 @@ onLogAppend((entry) => {
     getVideoSearchResults(topic).then((results) => {
       if (results && results.length > 0) {
         broadcast({ type: 'videoResults', results });
-        if (results[0].url) broadcast({ type: 'videoUrl', url: results[0].url });
+        const r = results[0];
+        if (r.url) loadVideoUrl(r.url, { title: r.title, thumbnail: r.thumbnail });
       }
     }).catch(() => {});
     return;
@@ -195,7 +227,8 @@ onLogAppend((entry) => {
     getLatestVideoFromChannel(channelName).then((results) => {
       if (results && results.length > 0) {
         broadcast({ type: 'videoResults', results });
-        if (results[0].url) broadcast({ type: 'videoUrl', url: results[0].url });
+        const r = results[0];
+        if (r.url) loadVideoUrl(r.url, { title: r.title, thumbnail: r.thumbnail });
       }
     }).catch(() => {});
     return;
@@ -462,6 +495,43 @@ const server = http.createServer((req, res) => {
     });
     return;
   }
+  if (url === '/moderator/comment' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let payload;
+      try {
+        payload = body ? JSON.parse(body) : {};
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        return;
+      }
+      const voiceName = typeof payload.voice === 'string' ? payload.voice.trim() : null;
+      const entry = resolveVoice(voiceName);
+      const modId = entry?.modId ?? null;
+      const conversationBlock = getConversationContextForSpeak();
+      if (!conversationBlock) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ response: null, error: 'No conversation yet.' }));
+        return;
+      }
+      const inputWithLog = `Recent conversation:\n${conversationBlock}\n\nGive a brief comment on this conversation.`;
+      getModeratorResponse(inputWithLog, { modId, statsLabel: 'moderatorSpeak' }).then(({ response, error }) => {
+        if (error) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ response: null, error }));
+          return;
+        }
+        if (response) {
+          append('AI', response);
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ response: response ?? null }));
+      });
+    });
+    return;
+  }
   if (url === '/moderator/speak-with-search' && req.method === 'POST') {
     let body = '';
     req.on('data', (chunk) => { body += chunk; });
@@ -663,6 +733,8 @@ const server = http.createServer((req, res) => {
         ? payload.urls.map((u) => (typeof u === 'string' ? u.trim() : '')).filter(Boolean)
         : [];
       const singleUrl = typeof payload.url === 'string' ? payload.url.trim() : '';
+      const title = typeof payload.title === 'string' ? payload.title.trim() : null;
+      const thumbnail = typeof payload.thumbnail === 'string' ? payload.thumbnail.trim() : null;
 
       if (urlsArray.length > 0) {
         videoQueue.length = 0;
@@ -674,7 +746,7 @@ const server = http.createServer((req, res) => {
         }
         const first = valid.shift();
         valid.forEach((u) => videoQueue.push(u));
-        loadVideoUrl(first);
+        loadVideoUrl(first, { title: title || null, thumbnail: thumbnail || null });
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, url: first, queueLength: videoQueue.length }));
         return;
@@ -686,7 +758,7 @@ const server = http.createServer((req, res) => {
           return;
         }
         videoQueue.length = 0;
-        loadVideoUrl(singleUrl);
+        loadVideoUrl(singleUrl, { title: title || null, thumbnail: thumbnail || null });
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, url: singleUrl }));
         return;
@@ -712,6 +784,11 @@ const server = http.createServer((req, res) => {
   if (url === '/video/queue' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ current: currentVideoUrl, queue: [...videoQueue] }));
+    return;
+  }
+  if (url === '/video/played' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ played: [...videoPlayedLog] }));
     return;
   }
   if (url === '/video/next' && req.method === 'POST') {

@@ -82,7 +82,7 @@ export const config = {
      */
     voices: {
       Immy: { voiceId: 'syeFW5TCGfY8Hs5y9tPE', modId: '18628a72-2d18-4448-b589-e57a619fb996' },
-      Khi: { voiceId: 'Iq6TL7fCl0jSeSIIgGEG', modId: '5aa2a339-3c73-4e06-a53a-2aa8a82f2b07' },
+      Khi: { voiceId: 'Iq6TL7fCl0jSeSIIgGEG', modId: '1c45d7e7-0130-4083-ad27-976a6fa5a584' },
       Elise: { voiceId: 'sjcPVAfTExhVDMuP2Myl'},
       Ajit: { voiceId: 'pzxut4zZz4GImZNlqQ3H' },
       Rachel: { voiceId: '21m00Tcm4TlvDq8ikWAM' },

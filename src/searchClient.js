@@ -79,7 +79,7 @@ const YOUTUBE_SEARCH_URL = 'https://www.googleapis.com/youtube/v3/search';
  * Requires YOUTUBE_API_KEY in env (Google Cloud project with YouTube Data API v3 enabled).
  * @param {string} query - User's topic (e.g. "gwar playing any song")
  * @param {{ order?: 'relevance'|'date' }} [options] - order=date for newest first
- * @returns {Promise<Array<{ title: string, url: string }>>}
+ * @returns {Promise<Array<{ title: string, url: string, thumbnail?: string }>>}
  */
 export async function getVideoSearchResults(query, options = {}) {
   const trimmed = query?.trim();
@@ -111,10 +111,17 @@ export async function getVideoSearchResults(query, options = {}) {
     const items = Array.isArray(data.items) ? data.items : [];
     return items
       .filter((item) => item.id?.videoId && item.snippet?.title)
-      .map((item) => ({
-        title: String(item.snippet.title).trim(),
-        url: `https://www.youtube.com/watch?v=${item.id.videoId}`,
-      }));
+      .map((item) => {
+        const videoId = item.id.videoId;
+        const thumb = item.snippet?.thumbnails?.medium?.url
+          || item.snippet?.thumbnails?.default?.url
+          || `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`;
+        return {
+          title: String(item.snippet.title).trim(),
+          url: `https://www.youtube.com/watch?v=${videoId}`,
+          thumbnail: thumb,
+        };
+      });
   } catch (err) {
     console.warn('[Video search]', err.message);
     return [];
@@ -126,7 +133,7 @@ export async function getVideoSearchResults(query, options = {}) {
  * Uses YouTube Data API v3: search (type=channel) then search (channelId + order=date).
  * Requires YOUTUBE_API_KEY in env.
  * @param {string} channelQuery - Channel name or handle (e.g. "GWAR" or "gwarvevo")
- * @returns {Promise<Array<{ title: string, url: string }>>} - One item (latest video) or []
+ * @returns {Promise<Array<{ title: string, url: string, thumbnail?: string }>>} - One item (latest video) or []
  */
 export async function getLatestVideoFromChannel(channelQuery) {
   const trimmed = channelQuery?.trim();
@@ -175,10 +182,15 @@ export async function getLatestVideoFromChannel(channelQuery) {
     const videoItems = Array.isArray(videoData.items) ? videoData.items : [];
     const video = videoItems[0];
     if (!video?.id?.videoId || !video?.snippet?.title) return [];
+    const videoId = video.id.videoId;
+    const thumb = video.snippet?.thumbnails?.medium?.url
+      || video.snippet?.thumbnails?.default?.url
+      || `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`;
     return [
       {
         title: String(video.snippet.title).trim(),
-        url: `https://www.youtube.com/watch?v=${video.id.videoId}`,
+        url: `https://www.youtube.com/watch?v=${videoId}`,
+        thumbnail: thumb,
       },
     ];
   } catch (err) {
