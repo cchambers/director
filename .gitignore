@@ -3,4 +3,5 @@ node_modules/
 *.log
 recordings/
 logs/
+# logs/tts-cache/ — cached TTS MP3s (under logs/)
 audio/

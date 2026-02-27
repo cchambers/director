@@ -6,6 +6,7 @@
  */
 
 import { spawn } from 'child_process';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -20,6 +21,85 @@ const MAX_TEXT_LENGTH = 2500;
 
 /** Directory under project root where TTS MP3s are saved. */
 const AUDIO_DIR = path.join(process.cwd(), 'audio');
+
+/** Directory for cached TTS by (text hash + voiceId) for replay. */
+const TTS_CACHE_DIR = path.join(process.cwd(), 'logs', 'tts-cache');
+
+/**
+ * Get or create a cached MP3 file for the given text and voice. Returns path to MP3 (relative to cwd for playLocalMp3).
+ * If the file already exists, returns it without calling the API.
+ * @param {string} text - Text to speak (trimmed, truncated to MAX_TEXT_LENGTH)
+ * @param {string} voiceId - ElevenLabs voice ID (used in filename for per-voice cache)
+ * @returns {Promise<string | null>} Relative path like logs/tts-cache/<hash>_<voiceId>.mp3 or null on error
+ */
+export async function getOrCreateTTSFile(text, voiceId) {
+  const apiKey = process.env.ELEVENLABS_API_KEY;
+  if (!apiKey?.trim()) return null;
+
+  const clean = String(text).trim().slice(0, MAX_TEXT_LENGTH);
+  if (!clean) return null;
+
+  const hash = crypto.createHash('sha256').update(clean).digest('hex').slice(0, 16);
+  const safeVoice = String(voiceId || '').replace(/[^a-zA-Z0-9-_]/g, '_') || 'default';
+  const fileName = `${hash}_${safeVoice}.mp3`;
+  const absolutePath = path.join(TTS_CACHE_DIR, fileName);
+
+  try {
+    fs.mkdirSync(TTS_CACHE_DIR, { recursive: true });
+  } catch (err) {
+    console.warn('[TTS] Could not create cache dir:', err.message);
+    return null;
+  }
+
+  if (fs.existsSync(absolutePath)) {
+    return path.relative(process.cwd(), absolutePath);
+  }
+
+  const url = `${ELEVENLABS_TTS_URL}/${encodeURIComponent(voiceId || process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM')}`;
+  let res;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'xi-api-key': apiKey,
+        Accept: 'audio/mpeg',
+      },
+      body: JSON.stringify({
+        text: clean,
+        model_id: 'eleven_multilingual_v2',
+        voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+      }),
+    });
+  } catch (err) {
+    console.warn('[TTS] ElevenLabs request failed:', err.message);
+    return null;
+  }
+
+  if (!res.ok) {
+    const t = await res.text();
+    console.warn('[TTS] ElevenLabs error:', res.status, t.slice(0, 200));
+    return null;
+  }
+
+  let buffer;
+  try {
+    buffer = await res.arrayBuffer();
+  } catch (err) {
+    console.warn('[TTS] Failed to read response:', err.message);
+    return null;
+  }
+  if (!buffer || buffer.byteLength === 0) return null;
+
+  try {
+    fs.writeFileSync(absolutePath, Buffer.from(buffer));
+  } catch (err) {
+    console.warn('[TTS] Could not write cache file:', err.message);
+    return null;
+  }
+
+  return path.relative(process.cwd(), absolutePath);
+}
 
 /**
  * Get a stream of 48kHz 16-bit stereo PCM suitable for Discord createAudioResource(..., { inputType: StreamType.Raw }).

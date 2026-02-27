@@ -12,6 +12,11 @@ export const config = {
       .split(',')
       .map((s) => s.trim().toLowerCase())
       .filter(Boolean),
+    /** Role names that are allowed to run /join, /suggest, /fc, /video and the "join" message. Bot creates these in each guild if missing. */
+    allowedRoleNames: (process.env.DISCORD_ALLOWED_ROLES || 'Cast Host,Cast Guest')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
   },
   moddit: {
     baseUrl: process.env.MODDIT_API_URL || 'https://api.moddit.io',

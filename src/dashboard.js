@@ -30,11 +30,12 @@ function resolveVoice(voiceName) {
 import { getRecentForDirector, getRecentForClaimExtraction, resetClaimBuffer, reset as resetDirectorBuffer, getLog, onLogAppend, updateEntry, appendTopicEntry, append } from './conversationLog.js';
 import { getFactCheck, getClaimExtraction, getFactCheckClaim, getDirectorSuggestion, getModeratorResponse, getTopicUpdate } from './modditClient.js';
 import { getSearchContext, getVideoSearchResults, getLatestVideoFromChannel } from './searchClient.js';
-import { speak as ttsSpeak, playLocalMp3 } from './ttsPlayer.js';
+import { playLocalMp3 } from './ttsPlayer.js';
+import { getOrCreateTTSFile } from './elevenlabsClient.js';
 import { showLowerThird } from './obsClient.js';
 import { getCurrentTopic, setTopic, getHistory } from './topicTracker.js';
 import { getTranscriptionState, setLiveTranscriptionEnabled } from './transcriptionState.js';
-import { getStats } from './stats.js';
+import { getStats, increment } from './stats.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const { port } = config.dashboard;
@@ -454,7 +455,6 @@ const server = http.createServer((req, res) => {
         }
         if (response) {
           append('AI', response);
-          ttsSpeak(response, { voiceId: voiceId || undefined }).catch((err) => console.warn('[TTS]', err.message));
         }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ response: response ?? null }));
@@ -496,11 +496,50 @@ const server = http.createServer((req, res) => {
         }
         if (response) {
           append('AI', response);
-          ttsSpeak(response, { voiceId: voiceId || undefined }).catch((err) => console.warn('[TTS]', err.message));
         }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ response: response ?? null, sources: sources ?? [] }));
       });
+    });
+    return;
+  }
+  if (url === '/tts/speak-entry' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', async () => {
+      let payload;
+      try {
+        payload = body ? JSON.parse(body) : {};
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        return;
+      }
+      const text = typeof payload.text === 'string' ? payload.text.trim() : '';
+      const voiceName = typeof payload.voice === 'string' ? payload.voice.trim() : null;
+      if (!text) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Missing text' }));
+        return;
+      }
+      const entry = resolveVoice(voiceName);
+      const voiceId = entry?.voiceId ?? process.env.ELEVENLABS_VOICE_ID ?? null;
+      try {
+        const filePath = await getOrCreateTTSFile(text, voiceId);
+        if (!filePath) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'TTS failed or disabled' }));
+          return;
+        }
+        playLocalMp3(filePath);
+        increment('tts');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      } catch (err) {
+        console.warn('[TTS] speak-entry:', err.message);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: err.message }));
+      }
     });
     return;
   }

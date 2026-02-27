@@ -17,6 +17,7 @@ import { startSessionLog, getRecentForDirector } from './conversationLog.js';
 import { getFactCheck } from './modditClient.js';
 import { startDashboard, loadVideoUrl } from './dashboard.js';
 import { setVoiceChannel as setSoundboardChannel } from './soundboard.js';
+import { ensureGuildRoles, canRunCommands } from './permissions.js';
 
 const { discord } = config;
 
@@ -28,6 +29,7 @@ if (!discord.token) {
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildVoiceStates,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.DirectMessages,
@@ -75,6 +77,9 @@ async function tryAutoJoinHost() {
 
 client.once(Events.ClientReady, async (c) => {
   console.log(`Logged in as ${c.user.tag}`);
+  for (const [, guild] of c.guilds.cache) {
+    await ensureGuildRoles(guild);
+  }
   if (discord.autoJoinHostChannel && discord.hostUserId) {
     console.log('Auto-join host channel is ON; will join when host is in voice.');
   }
@@ -98,6 +103,11 @@ client.on(Events.MessageCreate, async (message) => {
   const content = message.content.trim().toLowerCase();
   if (content !== 'join' && content !== '!join') return;
 
+  if (!canRunCommands(message.member)) {
+    await message.reply("You don't have permission to use this command.");
+    return;
+  }
+
   const voiceChannel = message.member?.voice?.channel;
   if (!voiceChannel) {
     await message.reply('Join a voice channel first, then say `join`.');
@@ -108,10 +118,16 @@ client.on(Events.MessageCreate, async (message) => {
   await message.reply(`Joined **${voiceChannel.name}**. I'm listening and logging; director suggestions will appear in the console.`);
 });
 
+const NO_PERMISSION_MSG = "You don't have permission to use this command.";
+
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === 'join') {
+    if (!canRunCommands(interaction.member)) {
+      await interaction.reply({ content: NO_PERMISSION_MSG, flags: MessageFlags.Ephemeral });
+      return;
+    }
     const voiceChannel = interaction.member?.voice?.channel;
     if (!voiceChannel) {
       await interaction.reply({ content: 'Join a voice channel first.', flags: MessageFlags.Ephemeral });
@@ -123,6 +139,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 
   if (interaction.commandName === 'suggest') {
+    if (!canRunCommands(interaction.member)) {
+      await interaction.reply({ content: NO_PERMISSION_MSG, flags: MessageFlags.Ephemeral });
+      return;
+    }
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const { suggestion, error } = await requestDirectorSuggestion();
     const content = error
@@ -135,6 +155,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 
   if (interaction.commandName === 'fc') {
+    if (!canRunCommands(interaction.member)) {
+      await interaction.reply({ content: NO_PERMISSION_MSG, flags: MessageFlags.Ephemeral });
+      return;
+    }
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const messages = getRecentForDirector();
     if (messages.length === 0) {
@@ -152,6 +176,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
   }
 
   if (interaction.commandName === 'video') {
+    if (!canRunCommands(interaction.member)) {
+      await interaction.reply({ content: NO_PERMISSION_MSG, flags: MessageFlags.Ephemeral });
+      return;
+    }
     const urlOption = interaction.options.get('url');
     const raw = urlOption?.value?.trim() ?? '';
     if (!raw) {

@@ -222,8 +222,9 @@
     .verdict-badge.subjective { background: rgba(234, 179, 8, 0.2); color: #eab308; }
     .claim-result details { margin-top: 0.5rem; }
     .topic-current { font-size: 1.05rem; font-weight: 500; margin-top: 0.25rem; }
-    .topic-history { list-style: none; padding: 0; margin: 0.5rem 0 0; font-size: 0.9rem; }
-    .topic-history li { padding: 0.35rem 0; border-bottom: 1px solid var(--border); }
+    .topic-history { display: flex; flex-direction: column-reverse; list-style: none; padding: 0; margin: 0.5rem 0 0; font-size: 0.9rem; }
+    .topic-history li { padding: 0.35rem 0; border-bottom: 1px solid var(--border); opacity:0.20 }
+    .topic-history li:last-child { opacity: 1; }
     .topic-time { color: var(--muted); font-size: 0.8rem; margin-right: 0.5rem; }
     .stats-heading { font-size: 0.95rem; font-weight: 600; margin: 0 0 0.75rem; color: var(--muted); }
     .stats-donut-wrap { display: flex; justify-content: center; margin-bottom: 1rem; }
@@ -301,6 +302,9 @@
     .log-entry .log-edit-actions button { font-family: inherit; font-size: 0.8rem; padding: 0.25rem 0.5rem; border-radius: 4px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; }
     .log-entry .log-edit-actions button:hover { background: var(--border); }
     .log-entry .log-edit-actions .log-save { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+    .log-entry-actions { margin-top: 0.35rem; display: flex; align-items: center; gap: 0.5rem; }
+    .log-entry-play-btn { font-family: inherit; font-size: 0.75rem; padding: 0.25rem 0.5rem; border-radius: 4px; border: 1px solid var(--border); background: var(--surface); color: var(--accent); cursor: pointer; }
+    .log-entry-play-btn:hover { background: var(--accent-dim); }
     .video-search-bar { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
     .video-query-input {
       flex: 1; font-family: inherit; font-size: 0.875rem; padding: 0.5rem 0.75rem;
@@ -555,7 +559,7 @@
       { key: 'directorSuggestion', label: 'Director suggestions' },
       { key: 'moderatorSpeak', label: 'Moderator speak' },
       { key: 'moderatorSpeakWithSearch', label: 'Moderator speak (with search)' },
-      { key: 'factCheck', label: 'Fact check (full)' },
+      { key: 'factCheck', label: 'Fact check (convo)' },
       { key: 'claimExtraction', label: 'Claim extraction' },
       { key: 'factCheckClaim', label: 'Fact check (claim)' },
       { key: 'topicUpdate', label: 'Topic update' },
@@ -855,6 +859,9 @@
       refreshClaimsBtn.disabled = false;
     });
 
+    function logEntryPlayHtml() {
+      return '<div class="log-entry-actions"><button type="button" class="log-entry-play-btn" title="Play in selected voice">Play</button></div>';
+    }
     function loadConversation() {
       fetch('/conversation').then((r) => r.json()).then((data) => {
         const entries = data.entries || [];
@@ -863,6 +870,7 @@
           <div class="log-entry" data-index="${i}" data-speaker="${escapeHtml(e.speaker || '')}" data-text="${escapeHtml((e.text || '').slice(0, 200))}" title="Double-click to edit">
             <span class="log-speaker">${escapeHtml(e.speaker || '')}:</span><span class="log-text">${escapeHtml(e.text || '')}</span>
             <div class="log-time">${formatTime(e.timestamp || 0)}</div>
+            ${e.speaker === 'AI' ? logEntryPlayHtml() : ''}
           </div>
         `).join('');
       }).catch(() => { emptyConversation.textContent = 'Failed to load conversation.'; emptyConversation.hidden = false; });
@@ -874,10 +882,31 @@
         <div class="log-entry" data-index="${index}" data-speaker="${escapeHtml(entry.speaker || '')}" data-text="${escapeHtml((entry.text || '').slice(0, 200))}" title="Double-click to edit">
           <span class="log-speaker">${escapeHtml(entry.speaker || '')}:</span><span class="log-text">${escapeHtml(entry.text || '')}</span>
           <div class="log-time">${escapeHtml(t)}</div>
+          ${entry.speaker === 'AI' ? logEntryPlayHtml() : ''}
         </div>
       `;
     }
 
+    logEntries.addEventListener('click', (e) => {
+      if (e.target.classList.contains('log-entry-play-btn')) {
+        e.preventDefault();
+        const entryEl = e.target.closest('.log-entry');
+        if (!entryEl) return;
+        const textEl = entryEl.querySelector('.log-text');
+        const text = textEl ? textEl.textContent : '';
+        if (!text.trim()) return;
+        const voice = voiceSelect.value || undefined;
+        e.target.disabled = true;
+        fetch('/tts/speak-entry', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: text.trim(), voice: voice || undefined }),
+        }).then((r) => r.json()).then((data) => {
+          if (data.error) console.warn('TTS play:', data.error);
+        }).catch((err) => console.warn('TTS play:', err)).finally(() => { e.target.disabled = false; });
+        return;
+      }
+    });
     logEntries.addEventListener('dblclick', (e) => {
       const entryEl = e.target.closest('.log-entry');
       if (!entryEl || entryEl.querySelector('.log-edit-speaker')) return;
@@ -1119,6 +1148,7 @@
       el.innerHTML = `
         <span class="log-speaker">${escapeHtml(entry.speaker || '')}:</span><span class="log-text">${escapeHtml(entry.text || '')}</span>
         <div class="log-time">${formatTime(entry.timestamp || 0)}</div>
+        ${entry.speaker === 'AI' ? logEntryPlayHtml() : ''}
       `;
       logEntries.appendChild(el);
       if (!conversationColumnHover) scrollConversation.scrollTop = 0;
