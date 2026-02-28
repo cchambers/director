@@ -67,7 +67,7 @@ export async function getOrCreateTTSFile(text, voiceId) {
       },
       body: JSON.stringify({
         text: clean,
-        model_id: 'eleven_multilingual_v2',
+        model_id: 'eleven_v3',
         voice_settings: { stability: 0.5, similarity_boost: 0.75 },
       }),
     });
@@ -128,8 +128,8 @@ export async function getTTSStream(text, options = {}) {
       },
       body: JSON.stringify({
         text: clean,
-        model_id: 'eleven_multilingual_v2',
-        voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+        model_id: 'eleven_v3',
+        voice_settings: { stability: 0.5, similarity_boost: 0.75, speed: 1.2, style_emphasis: 0 },
       }),
     });
   } catch (err) {

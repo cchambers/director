@@ -970,12 +970,12 @@
       word-break: break-word;
     }
 
-    .video-played-title a {
-      color: var(--accent);
-      text-decoration: none;
+    .video-played-title .video-played-load {
+      font: inherit; color: var(--accent); text-decoration: none; cursor: pointer;
+      background: none; border: none; padding: 0; text-align: left;
     }
 
-    .video-played-title a:hover {
+    .video-played-title .video-played-load:hover {
       text-decoration: underline;
     }
 
@@ -1402,10 +1402,13 @@
         const title = escapeHtml(p.title || p.url || 'Video');
         const thumb = p.thumbnail ? `<img class="video-played-thumb" src="${escapeHtml(p.thumbnail)}" alt="" loading="lazy" />` : '';
         const timeStr = p.playedAt ? formatTime(p.playedAt) : '';
+        const dataUrl = escapeHtml(p.url);
+        const dataTitle = p.title ? escapeHtml(p.title) : '';
+        const dataThumb = p.thumbnail ? escapeHtml(p.thumbnail) : '';
         return `<li>
           ${thumb}
           <div class="video-played-info">
-            <div class="video-played-title"><a href="/video-viewer.html?url=${encodeURIComponent(p.url)}" target="${escapeHtml(VIDEO_WINDOW_NAME)}" rel="noopener">${title}</a></div>
+            <div class="video-played-title"><button type="button" class="video-played-load" data-url="${dataUrl}" data-title="${dataTitle}" data-thumbnail="${dataThumb}">${title}</button></div>
             ${timeStr ? `<div class="video-played-time">${escapeHtml(timeStr)}</div>` : ''}
           </div>
         </li>`;
@@ -1416,6 +1419,20 @@
       fetch('/video/played').then((r) => r.json()).then((data) => updateVideoPlayedList(data.played || [])).catch(() => { });
     }
     loadVideoPlayed();
+
+    videoPlayedList.addEventListener('click', (e) => {
+      const btn = e.target.closest('.video-played-load');
+      if (!btn || !videoPlayedList.contains(btn)) return;
+      const url = btn.dataset.url;
+      if (!url) return;
+      const title = btn.dataset.title || '';
+      const thumbnail = btn.dataset.thumbnail || '';
+      fetch('/video/load', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, title: title || undefined, thumbnail: thumbnail || undefined }),
+      }).catch(() => {});
+    });
 
     function submitManualTopic() {
       const topic = topicManualInput.value.trim();

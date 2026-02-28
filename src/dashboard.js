@@ -29,7 +29,7 @@ function resolveVoice(voiceName) {
 }
 import { getRecentForDirector, getRecentForClaimExtraction, resetClaimBuffer, reset as resetDirectorBuffer, getLog, onLogAppend, updateEntry, appendTopicEntry, append } from './conversationLog.js';
 import { getFactCheck, getClaimExtraction, getFactCheckClaim, getDirectorSuggestion, getModeratorResponse, getTopicUpdate } from './modditClient.js';
-import { getSearchContext, getVideoSearchResults, getLatestVideoFromChannel } from './searchClient.js';
+import { getSearchContext, getVideoSearchResults, getLatestVideoFromChannel, getYouTubeVideoTitle } from './searchClient.js';
 import { playLocalMp3 } from './ttsPlayer.js';
 import { getOrCreateTTSFile } from './elevenlabsClient.js';
 import { showLowerThird } from './obsClient.js';
@@ -165,8 +165,20 @@ export function loadVideoUrl(url, opts = {}) {
     broadcast({ type: 'videoUrl', url: u });
     writeVideoQueueFile();
     broadcastVideoQueue();
-    const logText = opts.title ? `Loaded video: ${opts.title}` : `Loaded video: ${u}`;
-    append('Video', logText.slice(0, 500));
+    if (opts.title) {
+      append('Video', `Loaded video: ${opts.title}`.slice(0, 500));
+    } else if (getYouTubeVideoId(u)) {
+      getYouTubeVideoTitle(u).then((title) => {
+        const text = title ? `Loaded video: ${title}` : `Loaded video: ${u}`;
+        append('Video', text.slice(0, 500));
+        if (title) {
+          entry.title = title;
+          broadcast({ type: 'videoPlayedLog', played: [...videoPlayedLog] });
+        }
+      }).catch(() => append('Video', `Loaded video: ${u}`.slice(0, 500)));
+    } else {
+      append('Video', `Loaded video: ${u}`.slice(0, 500));
+    }
   } catch (_) {}
 }
 
@@ -879,7 +891,7 @@ export function startDashboard() {
     const topicCfg = config.topic;
     if (topicCfg?.enabled !== false && topicCfg?.intervalSec > 0) {
       const intervalMs = topicCfg.intervalSec * 1000;
-      const contextMessages = config.moddit?.contextMessages ?? 20;
+      const topicContextMessages = topicCfg.contextMessages ?? 5;
       const minNewMessages = Math.max(0, topicCfg.minNewMessages ?? 5);
       setInterval(() => {
         if (topicCheckInProgress) return;
@@ -889,7 +901,7 @@ export function startDashboard() {
         if (newSinceLast < minNewMessages) return;
         lastTopicCheckLogLength = entries.length;
         topicCheckInProgress = true;
-        const recent = entries.slice(-contextMessages);
+        const recent = entries.slice(-topicContextMessages);
         const conversationLog = recent.map((e) => `[${e.speaker}] ${e.text}`).join('\n');
         const previousTopic = getCurrentTopic();
         getTopicUpdate(previousTopic, conversationLog).then(({ topic: newTopic, error }) => {

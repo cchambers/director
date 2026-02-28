@@ -198,3 +198,26 @@ export async function getLatestVideoFromChannel(channelQuery) {
     return [];
   }
 }
+
+/**
+ * Fetch YouTube video title from URL via oEmbed (no API key required).
+ * @param {string} url - Full YouTube URL (youtube.com or youtu.be)
+ * @returns {Promise<string|null>} - Title or null on failure
+ */
+export async function getYouTubeVideoTitle(url) {
+  const u = (url ?? '').trim();
+  if (!u.startsWith('http://') && !u.startsWith('https://')) return null;
+  try {
+    const parsed = new URL(u);
+    const isYoutube = parsed.hostname === 'youtu.be' || parsed.hostname.includes('youtube.com');
+    if (!isYoutube) return null;
+    const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(u)}`;
+    const res = await fetch(oembedUrl);
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => ({}));
+    const title = data?.title;
+    return typeof title === 'string' ? title.trim() : null;
+  } catch (_) {
+    return null;
+  }
+}

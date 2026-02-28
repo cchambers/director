@@ -58,6 +58,8 @@ export const config = {
     intervalSec: parseInt(process.env.TOPIC_INTERVAL_SEC || '45', 10),
     /** Only run topic check when at least this many new messages since last check. */
     minNewMessages: parseInt(process.env.TOPIC_MIN_NEW_MESSAGES || '5', 10),
+    /** How many recent conversation lines to send to the topic mod (separate from director context). */
+    contextMessages: parseInt(process.env.TOPIC_CONTEXT_MESSAGES || '5', 10),
     /** Set to false to disable topic tracking. */
     enabled: process.env.TOPIC_ENABLED !== 'false',
   },
@@ -83,6 +85,7 @@ export const config = {
     voices: {
       Immy: { voiceId: 'syeFW5TCGfY8Hs5y9tPE', modId: '18628a72-2d18-4448-b589-e57a619fb996' },
       Khi: { voiceId: 'Iq6TL7fCl0jSeSIIgGEG', modId: '1c45d7e7-0130-4083-ad27-976a6fa5a584' },
+      Wrasslin: { voiceId: 'LG95yZDEHg6fCZdQjLqj', modId: '9dc96816-cce7-44c6-84a9-08d0a87f01a0' },
       Elise: { voiceId: 'sjcPVAfTExhVDMuP2Myl'},
       Ajit: { voiceId: 'pzxut4zZz4GImZNlqQ3H' },
       Rachel: { voiceId: '21m00Tcm4TlvDq8ikWAM' },
