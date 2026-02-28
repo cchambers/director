@@ -843,6 +843,22 @@
       background: var(--accent-dim);
     }
 
+    .log-entry-remove-btn {
+      font-family: inherit;
+      font-size: 0.75rem;
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--muted);
+      cursor: pointer;
+    }
+
+    .log-entry-remove-btn:hover {
+      background: var(--error-bg, #3d2020);
+      color: var(--error-fg, #e88);
+    }
+
     .video-search-bar {
       display: flex;
       gap: 0.5rem;
@@ -1081,7 +1097,6 @@
       </div>
     </section>
     <section class="column video-column">
-      <h2 class="column-title"><span>Video</span></h2>
       <div class="video-load-bar">
         <input type="text" id="videoUrlInput" placeholder="Paste YouTube or video URL" class="video-query-input" />
         <button type="button" class="btn primary" id="videoLoadUrlBtn">Load</button>
@@ -1722,8 +1737,9 @@
       addClaimBtn.disabled = false;
     });
 
-    function logEntryPlayHtml() {
-      return '<div class="log-entry-actions"><button type="button" class="log-entry-play-btn" title="Play in selected voice">Play</button></div>';
+    function logEntryActionsHtml(entry) {
+      const playBtn = entry.speaker === 'AI' ? '<button type="button" class="log-entry-play-btn" title="Play in selected voice">Play</button>' : '';
+      return '<div class="log-entry-actions"><button type="button" class="log-entry-remove-btn" title="Remove from log">Remove</button>' + playBtn + '</div>';
     }
     function loadConversation() {
       fetch('/conversation').then((r) => r.json()).then((data) => {
@@ -1733,7 +1749,7 @@
           <div class="log-entry" data-index="${i}" data-speaker="${escapeHtml(e.speaker || '')}" data-text="${escapeHtml((e.text || '').slice(0, 200))}" title="Double-click to edit">
             <span class="log-speaker">${escapeHtml(e.speaker || '')}:</span><span class="log-text">${escapeHtml(e.text || '')}</span>
             <div class="log-time">${formatTime(e.timestamp || 0)}</div>
-            ${e.speaker === 'AI' ? logEntryPlayHtml() : ''}
+            ${logEntryActionsHtml(e)}
           </div>
         `).join('');
       }).catch(() => { emptyConversation.textContent = 'Failed to load conversation.'; emptyConversation.hidden = false; });
@@ -1745,12 +1761,29 @@
         <div class="log-entry" data-index="${index}" data-speaker="${escapeHtml(entry.speaker || '')}" data-text="${escapeHtml((entry.text || '').slice(0, 200))}" title="Double-click to edit">
           <span class="log-speaker">${escapeHtml(entry.speaker || '')}:</span><span class="log-text">${escapeHtml(entry.text || '')}</span>
           <div class="log-time">${escapeHtml(t)}</div>
-          ${entry.speaker === 'AI' ? logEntryPlayHtml() : ''}
+          ${logEntryActionsHtml(entry)}
         </div>
       `;
     }
 
     logEntries.addEventListener('click', (e) => {
+      if (e.target.classList.contains('log-entry-remove-btn')) {
+        e.preventDefault();
+        const entryEl = e.target.closest('.log-entry');
+        if (!entryEl) return;
+        const index = entryEl.dataset.index;
+        if (index === undefined) return;
+        e.target.disabled = true;
+        fetch('/conversation', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ index: parseInt(index, 10) }),
+        }).then((r) => r.json()).then((data) => {
+          if (data.error) console.warn('Remove failed:', data.error);
+          loadConversation();
+        }).catch((err) => console.warn('Remove failed:', err)).finally(() => { e.target.disabled = false; });
+        return;
+      }
       if (e.target.classList.contains('log-entry-play-btn')) {
         e.preventDefault();
         const entryEl = e.target.closest('.log-entry');
@@ -2070,7 +2103,7 @@
       el.innerHTML = `
         <span class="log-speaker">${escapeHtml(entry.speaker || '')}:</span><span class="log-text">${escapeHtml(entry.text || '')}</span>
         <div class="log-time">${formatTime(entry.timestamp || 0)}</div>
-        ${entry.speaker === 'AI' ? logEntryPlayHtml() : ''}
+        ${logEntryActionsHtml(entry)}
       `;
       logEntries.appendChild(el);
       if (!conversationColumnHover) scrollConversation.scrollTop = 0;

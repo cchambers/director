@@ -106,6 +106,7 @@ export const config = {
   moderatorMods: {
     '1c45d7e7-0130-4083-ad27-976a6fa5a584': 'Default moderator',
     '18628a72-2d18-4448-b589-e57a619fb996': 'Immy',
+    '5aa2a339-3c73-4e06-a53a-2aa8a82f2b07': 'Khi',
     '9dc96816-cce7-44c6-84a9-08d0a87f01a0': 'Wrestling Announcer',
     '523803a8-8f32-40a7-9fc8-5fe168632c90': 'Princess Donut',
   },

@@ -71,7 +71,7 @@ function resolveMod(modValue) {
   return byName ? byName.id : defaultModId;
 }
 
-import { getRecentForDirector, getRecentForClaimExtraction, resetClaimBuffer, reset as resetDirectorBuffer, getLog, onLogAppend, updateEntry, appendTopicEntry, append } from './conversationLog.js';
+import { getRecentForDirector, getRecentForClaimExtraction, resetClaimBuffer, reset as resetDirectorBuffer, getLog, onLogAppend, updateEntry, removeEntry, appendTopicEntry, append } from './conversationLog.js';
 import { getFactCheck, getClaimExtraction, getFactCheckClaim, getDirectorSuggestion, getModeratorResponse, getTopicUpdate } from './modditClient.js';
 import { getSearchContext, getVideoSearchResults, getLatestVideoFromChannel, getYouTubeVideoTitle } from './searchClient.js';
 import { playLocalMp3 } from './ttsPlayer.js';
@@ -533,6 +533,35 @@ const server = http.createServer((req, res) => {
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ entry: result.entry }));
+    });
+    return;
+  }
+  if (url === '/conversation' && req.method === 'DELETE') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let payload;
+      try {
+        payload = body ? JSON.parse(body) : {};
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        return;
+      }
+      const index = typeof payload.index === 'number' ? payload.index : parseInt(payload.index, 10);
+      if (Number.isNaN(index)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Missing or invalid index' }));
+        return;
+      }
+      const result = removeEntry(index);
+      if (result.error) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: result.error }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ removed: true }));
     });
     return;
   }

@@ -186,6 +186,21 @@ export function updateEntry(index, patch) {
   return { entry: { speaker: entry.speaker, text: entry.text, timestamp: entry.timestamp } };
 }
 
+/**
+ * Remove a single log entry by index. Updates director and claim buffers and rewrites the session .log file.
+ * @param {number} index - Zero-based index into the log
+ * @returns {{ removed: true } | { error: string }}
+ */
+export function removeEntry(index) {
+  if (index < 0 || index >= log.length) return { error: 'Invalid index' };
+  log.splice(index, 1);
+  claimBuffer.splice(index, 1);
+  directorBuffer.length = 0;
+  log.forEach((e) => directorBuffer.push(e));
+  rewriteSessionLogFile();
+  return { removed: true };
+}
+
 /** Clear only the director buffer (call after sending to Moddit; next suggestion gets only new messages). */
 export function reset() {
   directorBuffer.length = 0;
