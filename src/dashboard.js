@@ -27,6 +27,50 @@ function resolveVoice(voiceName) {
   if (val === undefined) return null;
   return normalizeVoiceEntry(val, defaultModId);
 }
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function getModsList() {
+  const voices = getVoicesList();
+  const modIds = new Set([defaultModId]);
+  if (config.topic?.modId) modIds.add(config.topic.modId);
+  voices.forEach((v) => modIds.add(v.modId));
+  const modIdToVoiceNames = new Map();
+  voices.forEach((v) => {
+    const names = modIdToVoiceNames.get(v.modId) || [];
+    names.push(v.name);
+    modIdToVoiceNames.set(v.modId, names);
+  });
+  const customNames = config.moderatorMods && typeof config.moderatorMods === 'object' ? config.moderatorMods : {};
+  const topicModId = config.topic?.modId || null;
+  const order = [defaultModId];
+  if (topicModId && topicModId !== defaultModId) order.push(topicModId);
+  [...modIds].forEach((id) => { if (!order.includes(id)) order.push(id); });
+  return order.map((modId) => {
+    let name = customNames[modId];
+    if (!name) {
+      const voiceNames = modIdToVoiceNames.get(modId);
+      if (voiceNames && voiceNames.length === 1) name = voiceNames[0];
+      else if (modId === defaultModId) name = 'Default moderator';
+      else if (modId === topicModId) name = 'Topic';
+      else name = 'Mod (' + (modId || '').slice(0, 8) + ')';
+    }
+    return { id: modId, name };
+  });
+}
+
+function resolveMod(modValue) {
+  if (!modValue || typeof modValue !== 'string') return defaultModId;
+  const list = getModsList();
+  const trimmed = modValue.trim();
+  if (UUID_REGEX.test(trimmed)) {
+    const found = list.find((m) => m.id === trimmed);
+    return found ? found.id : defaultModId;
+  }
+  const byName = list.find((m) => m.name === trimmed);
+  return byName ? byName.id : defaultModId;
+}
+
 import { getRecentForDirector, getRecentForClaimExtraction, resetClaimBuffer, reset as resetDirectorBuffer, getLog, onLogAppend, updateEntry, appendTopicEntry, append } from './conversationLog.js';
 import { getFactCheck, getClaimExtraction, getFactCheckClaim, getDirectorSuggestion, getModeratorResponse, getTopicUpdate } from './modditClient.js';
 import { getSearchContext, getVideoSearchResults, getLatestVideoFromChannel, getYouTubeVideoTitle } from './searchClient.js';
@@ -207,6 +251,12 @@ let lastLatestVideoChannelAt = 0;
 let lastTopicCheckLogLength = 0;
 let topicCheckInProgress = false;
 
+/** Runtime toggle: when false, the interval skips calling the topic mod (UI can turn live updates off). */
+let liveTopicUpdatesEnabled = true;
+
+/** Runtime toggle: when false, auto claim extraction on new log lines is skipped (UI can turn it off). */
+let autoClaimExtractionEnabled = config.claims?.autoExtractEnabled !== false;
+
 onLogAppend((entry) => {
   broadcast({ type: 'logEntry', entry: { speaker: entry.speaker, text: entry.text, timestamp: entry.timestamp } });
   const pullVideoMatch = entry.text.match(PULL_VIDEO_REGEX);
@@ -246,7 +296,7 @@ onLogAppend((entry) => {
     return;
   }
   const minLen = config.claims?.autoExtractMinLineLength ?? 0;
-  if (minLen > 0 && entry.text.length > minLen) {
+  if (autoClaimExtractionEnabled && minLen > 0 && entry.text.length > minLen) {
     const messages = getRecentForClaimExtraction();
     if (messages.length > 0) {
       getClaimExtraction(messages).then(({ claims, error }) => {
@@ -367,6 +417,61 @@ const server = http.createServer((req, res) => {
     });
     return;
   }
+  if (url === '/claims/settings') {
+    if (req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ autoExtract: autoClaimExtractionEnabled }));
+      return;
+    }
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk) => { body += chunk; });
+      req.on('end', () => {
+        let payload;
+        try {
+          payload = body ? JSON.parse(body) : {};
+        } catch {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid JSON' }));
+          return;
+        }
+        const enabled = payload.autoExtract !== false;
+        autoClaimExtractionEnabled = !!enabled;
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ autoExtract: autoClaimExtractionEnabled }));
+      });
+      return;
+    }
+  }
+  if (url === '/claims/add' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let payload;
+      try {
+        payload = body ? JSON.parse(body) : {};
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        return;
+      }
+      const claim = typeof payload.claim === 'string' ? payload.claim.trim() : '';
+      if (!claim) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Claim text is required.' }));
+        return;
+      }
+      const item = {
+        claim,
+        type: typeof payload.type === 'string' ? payload.type : 'manual',
+        speaker: typeof payload.speaker === 'string' ? payload.speaker : '',
+      };
+      broadcast({ type: 'claims', claims: [item] });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ claims: [item] }));
+    });
+    return;
+  }
   if (url === '/claims/check' && req.method === 'POST') {
     let body = '';
     req.on('data', (chunk) => { body += chunk; });
@@ -437,11 +542,41 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify({ voices }));
     return;
   }
+  if (url === '/mods' && req.method === 'GET') {
+    const mods = getModsList();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ mods }));
+    return;
+  }
   if (url === '/topic' && req.method === 'GET') {
     const topic = getCurrentTopic();
     const history = getHistory();
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ topic, history }));
+    res.end(JSON.stringify({ topic, history, liveUpdatesEnabled: liveTopicUpdatesEnabled }));
+    return;
+  }
+  if (url === '/topic/live-updates' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ enabled: liveTopicUpdatesEnabled }));
+    return;
+  }
+  if (url === '/topic/live-updates' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let payload;
+      try {
+        payload = body ? JSON.parse(body) : {};
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        return;
+      }
+      const enabled = payload.enabled !== false;
+      liveTopicUpdatesEnabled = !!enabled;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ enabled: liveTopicUpdatesEnabled }));
+    });
     return;
   }
   if (url === '/topic' && req.method === 'POST') {
@@ -485,14 +620,48 @@ const server = http.createServer((req, res) => {
       }
       const text = typeof payload.text === 'string' ? payload.text.trim() : '';
       const voiceName = typeof payload.voice === 'string' ? payload.voice.trim() : null;
+      const modValue = typeof payload.mod === 'string' ? payload.mod.trim() : null;
       const entry = resolveVoice(voiceName);
       const voiceId = entry?.voiceId ?? null;
-      const modId = entry?.modId ?? null;
+      const modId = (modValue !== null && modValue !== '') ? resolveMod(modValue) : (entry?.modId ?? defaultModId);
       const conversationBlock = getConversationContextForSpeak();
       const inputWithLog = conversationBlock
         ? `Recent conversation:\n${conversationBlock}\n\nUser selection: ${text || 'No context provided.'}`
         : (text || 'No context provided.');
       getModeratorResponse(inputWithLog, { modId, statsLabel: 'moderatorSpeak' }).then(({ response, error }) => {
+        if (error) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ response: null, error }));
+          return;
+        }
+        if (response) {
+          append('AI', response);
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ response: response ?? null }));
+      });
+    });
+    return;
+  }
+  if (url === '/moderator/speak-custom' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let payload;
+      try {
+        payload = body ? JSON.parse(body) : {};
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        return;
+      }
+      const text = typeof payload.text === 'string' ? payload.text.trim() : '';
+      const voiceName = typeof payload.voice === 'string' ? payload.voice.trim() : null;
+      const modValue = typeof payload.mod === 'string' ? payload.mod.trim() : null;
+      const entry = resolveVoice(voiceName);
+      const modId = (modValue !== null && modValue !== '') ? resolveMod(modValue) : (entry?.modId ?? defaultModId);
+      const input = text ? `Say this in character: ${text}` : 'Say this in character: (no text provided)';
+      getModeratorResponse(input, { modId, statsLabel: 'moderatorSpeak' }).then(({ response, error }) => {
         if (error) {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ response: null, error }));
@@ -520,8 +689,9 @@ const server = http.createServer((req, res) => {
         return;
       }
       const voiceName = typeof payload.voice === 'string' ? payload.voice.trim() : null;
+      const modValue = typeof payload.mod === 'string' ? payload.mod.trim() : null;
       const entry = resolveVoice(voiceName);
-      const modId = entry?.modId ?? null;
+      const modId = (modValue !== null && modValue !== '') ? resolveMod(modValue) : (entry?.modId ?? defaultModId);
       const conversationBlock = getConversationContextForSpeak();
       if (!conversationBlock) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -558,9 +728,10 @@ const server = http.createServer((req, res) => {
       }
       const text = typeof payload.text === 'string' ? payload.text.trim() : '';
       const voiceName = typeof payload.voice === 'string' ? payload.voice.trim() : null;
+      const modValue = typeof payload.mod === 'string' ? payload.mod.trim() : null;
       const entry = resolveVoice(voiceName);
       const voiceId = entry?.voiceId ?? null;
-      const modId = entry?.modId ?? null;
+      const modId = (modValue !== null && modValue !== '') ? resolveMod(modValue) : (entry?.modId ?? defaultModId);
       const input = text || 'No context provided.';
       const { contextText, sources } = await getSearchContext(input);
       const enrichedInput = contextText
@@ -894,7 +1065,7 @@ export function startDashboard() {
       const topicContextMessages = topicCfg.contextMessages ?? 5;
       const minNewMessages = Math.max(0, topicCfg.minNewMessages ?? 5);
       setInterval(() => {
-        if (topicCheckInProgress) return;
+        if (!liveTopicUpdatesEnabled || topicCheckInProgress) return;
         const entries = getLog();
         if (entries.length < 2) return;
         const newSinceLast = entries.length - lastTopicCheckLogLength;

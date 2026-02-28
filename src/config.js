@@ -49,6 +49,8 @@ export const config = {
   /** Claims: auto-extract when a log line is longer than this (0 = disabled). */
   claims: {
     autoExtractMinLineLength: parseInt(process.env.CLAIM_EXTRACT_MIN_LINE_LENGTH || '20', 10),
+    /** If true (default), auto-extract claims when new log lines are long enough. Set CLAIM_AUTO_EXTRACT_ENABLED=false to disable. */
+    autoExtractEnabled: process.env.CLAIM_AUTO_EXTRACT_ENABLED !== 'false',
   },
   /** Topic tracker: detect topic shifts and write to a file for OBS. */
   topic: {
@@ -86,6 +88,7 @@ export const config = {
       Immy: { voiceId: 'syeFW5TCGfY8Hs5y9tPE', modId: '18628a72-2d18-4448-b589-e57a619fb996' },
       Khi: { voiceId: 'Iq6TL7fCl0jSeSIIgGEG', modId: '1c45d7e7-0130-4083-ad27-976a6fa5a584' },
       Wrasslin: { voiceId: 'LG95yZDEHg6fCZdQjLqj', modId: '9dc96816-cce7-44c6-84a9-08d0a87f01a0' },
+      Canadude: { voiceId: 'https://elevenlabs.io/app/voice-library?voiceId=eadgjmk4R4uojdsheG9t' },
       Elise: { voiceId: 'sjcPVAfTExhVDMuP2Myl'},
       Ajit: { voiceId: 'pzxut4zZz4GImZNlqQ3H' },
       Rachel: { voiceId: '21m00Tcm4TlvDq8ikWAM' },
@@ -98,6 +101,13 @@ export const config = {
       OldMan2: { voiceId: 'SGfyGfQJBs0O7iPKEkB5' },
       Donut: { voiceId: 'USEQXnsXRJlw2k9LUzG4', modId: '523803a8-8f32-40a7-9fc8-5fe168632c90', store: true },
     },
+  },
+  /** Optional: modId -> display name for "Use Mod" dropdown. Omitted entries get derived names (voice name or "Mod (id)"). */
+  moderatorMods: {
+    '1c45d7e7-0130-4083-ad27-976a6fa5a584': 'Default moderator',
+    '18628a72-2d18-4448-b589-e57a619fb996': 'Immy',
+    '9dc96816-cce7-44c6-84a9-08d0a87f01a0': 'Wrestling Announcer',
+    '523803a8-8f32-40a7-9fc8-5fe168632c90': 'Princess Donut',
   },
   /** Default mod for moderator/speak when a voice does not specify modId (env MODERATOR_MOD_ID or fallback). */
   moderatorModId: process.env.MODERATOR_MOD_ID || '1c45d7e7-0130-4083-ad27-976a6fa5a584',

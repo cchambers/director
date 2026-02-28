@@ -1031,6 +1031,10 @@
       <h1>Director</h1>
       <span class="badge">LIVE</span>
     </div>
+      <div style="margin-bottom: 1rem; flex-shrink: 0; display: flex; align-items: center; gap: 0.5rem;">
+        <input type="text" id="sayInCharacterInput" placeholder="Type a line for the moderator to say…" class="video-query-input" rows="2" style="resize: vertical; margin-bottom: 0.5rem;"/>
+        <button type="button" class="btn primary" id="sayInCharacterBtn">Say in character</button>
+      </div>
     <div class="header-settings" id="headerSettings">
       <button type="button" class="settings-trigger" id="settingsTrigger" aria-haspopup="true" aria-expanded="false">⚙
         Settings</button>
@@ -1042,8 +1046,12 @@
           </label>
         </div>
         <div class="setting-row">
-          <label for="voiceSelect" style="display:block; margin-bottom: 0.25rem;">Voice</label>
+          <label for="voiceSelect" style="display:block; margin-bottom: 0.25rem;">Speak With</label>
           <select id="voiceSelect" class="voice-select" aria-label="TTS voice" style="width: 100%;"></select>
+        </div>
+        <div class="setting-row">
+          <label for="modSelect" style="display:block; margin-bottom: 0.25rem;">Use Mod</label>
+          <select id="modSelect" class="voice-select" aria-label="Moderator mod" style="width: 100%;"></select>
         </div>
       </div>
     </div>
@@ -1055,6 +1063,7 @@
         <button type="button" class="btn primary" id="aiCommentBtn">AI Comment</button>
       </h2>
       <div class="column-scroll" id="scrollConversation">
+       
         <div class="log-entries" id="logEntries"></div>
         <div class="empty" id="emptyConversation">Conversation log will appear here once the bot is in voice. It updates
           live.</div>
@@ -1135,8 +1144,16 @@
       </div>
       <div class="tools-panel active" id="toolsPanelClaims" data-panel="claims">
         <div class="column-scroll" id="scrollClaims">
+          <label class="video-auto-open" style="margin-bottom: 0.75rem;">
+            <input type="checkbox" id="claimsAutoExtractCheckbox" checked />
+            <span>Auto-extract claims</span>
+          </label>
           <div style="margin-bottom: 0.75rem;">
             <button type="button" class="btn primary" id="refreshClaimsBtn">Refresh claims</button>
+          </div>
+          <div class="video-search-bar" style="margin-bottom: 0.75rem;">
+            <input type="text" id="manualClaimInput" placeholder="Add a claim manually" class="video-query-input" />
+            <button type="button" class="btn primary" id="addClaimBtn">Add claim</button>
           </div>
           <div class="cards" id="cardsClaims"></div>
           <div class="empty" id="emptyClaims">Click &quot;Refresh claims&quot; to extract claims from the conversation.
@@ -1145,6 +1162,10 @@
       </div>
       <div class="tools-panel" id="toolsPanelTopic" data-panel="topic">
         <div class="column-scroll" id="scrollTopic">
+          <label class="video-auto-open" style="margin-bottom: 1rem;">
+            <input type="checkbox" id="topicLiveUpdatesCheckbox" checked />
+            <span>Live topic updates</span>
+          </label>
           <div class="video-search-bar" style="margin-bottom: 1rem;">
             <input type="text" id="topicManualInput" placeholder="Set topic manually" class="video-query-input" />
             <button type="button" class="btn primary" id="topicSetBtn">Set topic</button>
@@ -1197,6 +1218,7 @@
     <button type="button" id="contextMenuSpeakSearch" role="menuitem">Speak with search</button>
     <button type="button" id="contextMenuFactCheck" role="menuitem">Fact check</button>
     <button type="button" id="contextMenuPaste" role="menuitem">Paste</button>
+    <button type="button" id="contextMenuGoogle" role="menuitem">Google</button>
   </div>
   <script>
     const cardsDirector = document.getElementById('cardsDirector');
@@ -1206,6 +1228,9 @@
     const emptyDirector = document.getElementById('emptyDirector');
     const emptyClaims = document.getElementById('emptyClaims');
     const refreshClaimsBtn = document.getElementById('refreshClaimsBtn');
+    const claimsAutoExtractCheckbox = document.getElementById('claimsAutoExtractCheckbox');
+    const manualClaimInput = document.getElementById('manualClaimInput');
+    const addClaimBtn = document.getElementById('addClaimBtn');
     const suggestBtn = document.getElementById('suggestBtn');
     const scrollConversation = document.getElementById('scrollConversation');
     const logEntries = document.getElementById('logEntries');
@@ -1216,7 +1241,11 @@
     const contextMenuSpeakSearch = document.getElementById('contextMenuSpeakSearch');
     const contextMenuFactCheck = document.getElementById('contextMenuFactCheck');
     const contextMenuPaste = document.getElementById('contextMenuPaste');
+    const contextMenuGoogle = document.getElementById('contextMenuGoogle');
+    const sayInCharacterInput = document.getElementById('sayInCharacterInput');
+    const sayInCharacterBtn = document.getElementById('sayInCharacterBtn');
     const voiceSelect = document.getElementById('voiceSelect');
+    const modSelect = document.getElementById('modSelect');
     const transcriptionEnabledCheckbox = document.getElementById('transcriptionEnabledCheckbox');
     const videoUrlInput = document.getElementById('videoUrlInput');
     const videoLoadUrlBtn = document.getElementById('videoLoadUrlBtn');
@@ -1264,6 +1293,7 @@
     const emptyTopic = document.getElementById('emptyTopic');
     const topicManualInput = document.getElementById('topicManualInput');
     const topicSetBtn = document.getElementById('topicSetBtn');
+    const topicLiveUpdatesCheckbox = document.getElementById('topicLiveUpdatesCheckbox');
 
     settingsTrigger.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1355,7 +1385,7 @@
     videoTabQueue.addEventListener('click', () => setVideoTab('queue'));
     videoTabLog.addEventListener('click', () => setVideoTab('log'));
 
-    function updateTopicPanel(topic, historyList) {
+    function updateTopicPanel(topic, historyList, liveUpdatesEnabled) {
       topicCurrent.textContent = topic || '—';
       if (historyList && historyList.length > 0) {
         emptyTopic.hidden = true;
@@ -1368,8 +1398,22 @@
         topicHistory.hidden = true;
         emptyTopic.hidden = !topic;
       }
+      if (topicLiveUpdatesCheckbox && liveUpdatesEnabled !== undefined) {
+        topicLiveUpdatesCheckbox.checked = liveUpdatesEnabled !== false;
+      }
     }
-    fetch('/topic').then((r) => r.json()).then((data) => updateTopicPanel(data.topic, data.history)).catch(() => { });
+    fetch('/topic').then((r) => r.json()).then((data) => {
+      updateTopicPanel(data.topic, data.history, data.liveUpdatesEnabled);
+    }).catch(() => { });
+
+    topicLiveUpdatesCheckbox.addEventListener('change', () => {
+      const enabled = topicLiveUpdatesCheckbox.checked;
+      fetch('/topic/live-updates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      }).catch(() => {});
+    });
 
     function updateVideoQueueList(current, queue) {
       const hasAny = current || (queue && queue.length > 0);
@@ -1480,6 +1524,10 @@
     fetch('/voices').then((r) => r.json()).then((data) => {
       const voices = data.voices || [];
       voiceSelect.innerHTML = voices.map((v) => `<option value="${escapeHtml(v.id)}">${escapeHtml(v.name)}</option>`).join('');
+    }).catch(() => { });
+    fetch('/mods').then((r) => r.json()).then((data) => {
+      const mods = data.mods || [];
+      modSelect.innerHTML = mods.map((m) => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)}</option>`).join('');
     }).catch(() => { });
 
     function formatTime(ms) {
@@ -1612,6 +1660,20 @@
       suggestBtn.disabled = false;
     });
 
+    fetch('/claims/settings').then((r) => r.json()).then((data) => {
+      if (claimsAutoExtractCheckbox && data.autoExtract !== undefined) {
+        claimsAutoExtractCheckbox.checked = data.autoExtract !== false;
+      }
+    }).catch(() => {});
+
+    claimsAutoExtractCheckbox.addEventListener('change', () => {
+      fetch('/claims/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autoExtract: claimsAutoExtractCheckbox.checked }),
+      }).catch(() => {});
+    });
+
     refreshClaimsBtn.addEventListener('click', async () => {
       refreshClaimsBtn.disabled = true;
       try {
@@ -1628,6 +1690,36 @@
         emptyClaims.hidden = false;
       }
       refreshClaimsBtn.disabled = false;
+    });
+
+    addClaimBtn.addEventListener('click', async () => {
+      const text = manualClaimInput.value.trim();
+      if (!text) {
+        manualClaimInput.focus();
+        return;
+      }
+      addClaimBtn.disabled = true;
+      try {
+        const res = await fetch('/claims/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ claim: text, type: 'manual', speaker: '' }),
+        });
+        const data = await res.json();
+        if (data.error) {
+          emptyClaims.textContent = data.error;
+          emptyClaims.hidden = false;
+        } else if (data.claims && data.claims.length) {
+          const c = data.claims[0];
+          addClaimCard(c.claim, c.type, c.speaker);
+          manualClaimInput.value = '';
+          emptyClaims.hidden = true;
+        }
+      } catch (err) {
+        emptyClaims.textContent = 'Request failed: ' + err.message;
+        emptyClaims.hidden = false;
+      }
+      addClaimBtn.disabled = false;
     });
 
     function logEntryPlayHtml() {
@@ -1727,7 +1819,7 @@
       fetch('/moderator/comment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ voice: voiceSelect.value || undefined }),
+        body: JSON.stringify({ voice: voiceSelect.value || undefined, mod: modSelect.value || undefined }),
       }).then((r) => r.json()).then((data) => {
         if (data.error) console.warn('AI Comment:', data.error);
       }).catch((err) => console.warn('AI Comment:', err)).finally(() => { aiCommentBtn.disabled = false; });
@@ -1857,6 +1949,7 @@
       contextMenuSpeak.disabled = !contextMenuSelection;
       contextMenuSpeakSearch.disabled = !contextMenuSelection;
       contextMenuFactCheck.disabled = !contextMenuSelection;
+      contextMenuGoogle.disabled = !contextMenuSelection;
       const active = document.activeElement;
       contextMenuPasteTarget = (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) ? active : null;
       contextMenuPaste.disabled = !contextMenuPasteTarget;
@@ -1881,10 +1974,11 @@
       const text = contextMenuSelection;
       contextMenuSpeak.disabled = true;
       const voice = voiceSelect.value || null;
+      const mod = modSelect.value || null;
       fetch('/moderator/speak', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, voice: voice || undefined }),
+        body: JSON.stringify({ text, voice: voice || undefined, mod: mod || undefined }),
       }).then((r) => r.json()).then((data) => {
         if (data.error) console.warn('Moderator speak:', data.error);
       }).finally(() => { contextMenuSpeak.disabled = false; });
@@ -1897,10 +1991,11 @@
       const text = contextMenuSelection;
       contextMenuSpeakSearch.disabled = true;
       const voice = voiceSelect.value || null;
+      const mod = modSelect.value || null;
       fetch('/moderator/speak-with-search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, voice: voice || undefined }),
+        body: JSON.stringify({ text, voice: voice || undefined, mod: mod || undefined }),
       }).then((r) => r.json()).then((data) => {
         if (data.error) console.warn('Speak with search:', data.error);
       }).finally(() => { contextMenuSpeakSearch.disabled = false; });
@@ -1935,6 +2030,28 @@
         target.selectionStart = target.selectionEnd = start + text.length;
         target.dispatchEvent(new Event('input', { bubbles: true }));
       }).catch(() => { });
+    });
+
+    contextMenuGoogle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      hideContextMenu();
+      if (!contextMenuSelection) return;
+      window.open('https://www.google.com/search?q=' + encodeURIComponent(contextMenuSelection), '_blank', 'noopener');
+    });
+
+    sayInCharacterBtn.addEventListener('click', () => {
+      const text = sayInCharacterInput.value.trim();
+      sayInCharacterBtn.disabled = true;
+      const voice = voiceSelect.value || null;
+      const mod = modSelect.value || null;
+      fetch('/moderator/speak-custom', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voice: voice || undefined, mod: mod || undefined }),
+      }).then((r) => r.json()).then((data) => {
+        if (data.error) console.warn('Say in character:', data.error);
+        else if (data.response) sayInCharacterInput.value = '';
+      }).catch((err) => console.warn('Say in character:', err)).finally(() => { sayInCharacterBtn.disabled = false; });
     });
 
     let conversationColumnHover = false;
