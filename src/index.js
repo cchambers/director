@@ -13,7 +13,7 @@ import { config } from './config.js';
 import { setupVoiceReceive } from './voiceHandler.js';
 import { setConnection as setTTSConnection } from './ttsPlayer.js';
 import { startDirectorLoop, requestDirectorSuggestion } from './directorLoop.js';
-import { startSessionLog, getRecentForDirector } from './conversationLog.js';
+import { startSessionLog, getRecentForDirector, append, filterMessagesForFactCheck } from './conversationLog.js';
 import { getFactCheck } from './modditClient.js';
 import { startDashboard, loadVideoUrl } from './dashboard.js';
 import { setVoiceChannel as setSoundboardChannel } from './soundboard.js';
@@ -88,6 +88,16 @@ client.once(Events.ClientReady, async (c) => {
 });
 
 client.on(Events.VoiceStateUpdate, (oldState, newState) => {
+  const botChannelId = newState.guild.members.me?.voice?.channelId;
+  if (botChannelId && newState.member?.id !== newState.guild.members.me?.id) {
+    const name = (newState.member?.displayName ?? newState.member?.user?.username ?? 'Someone').trim();
+    if (oldState.channelId === botChannelId && newState.channelId !== botChannelId) {
+      append('Voice', `${name} left the channel.`);
+    } else if (newState.channelId === botChannelId && oldState.channelId !== botChannelId) {
+      append('Voice', `${name} joined the channel.`);
+    }
+  }
+
   const { autoJoinHostChannel, hostUserId } = discord;
   if (!autoJoinHostChannel || !hostUserId || newState.member?.id !== hostUserId) return;
   const channel = newState.channel;
@@ -161,11 +171,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const messages = getRecentForDirector();
-    if (messages.length === 0) {
+    const filtered = filterMessagesForFactCheck(messages);
+    if (filtered.length === 0) {
       await interaction.editReply({ content: 'No conversation yet to fact-check.' });
       return;
     }
-    const { result, error } = await getFactCheck(messages);
+    const { result, error } = await getFactCheck(filtered);
     const content = error
       ? `Fact-check: ${error}`
       : result

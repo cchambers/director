@@ -33,7 +33,6 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 function getModsList() {
   const voices = getVoicesList();
   const modIds = new Set([defaultModId]);
-  if (config.topic?.modId) modIds.add(config.topic.modId);
   voices.forEach((v) => modIds.add(v.modId));
   const modIdToVoiceNames = new Map();
   voices.forEach((v) => {
@@ -42,9 +41,7 @@ function getModsList() {
     modIdToVoiceNames.set(v.modId, names);
   });
   const customNames = config.moderatorMods && typeof config.moderatorMods === 'object' ? config.moderatorMods : {};
-  const topicModId = config.topic?.modId || null;
   const order = [defaultModId];
-  if (topicModId && topicModId !== defaultModId) order.push(topicModId);
   [...modIds].forEach((id) => { if (!order.includes(id)) order.push(id); });
   return order.map((modId) => {
     let name = customNames[modId];
@@ -52,7 +49,6 @@ function getModsList() {
       const voiceNames = modIdToVoiceNames.get(modId);
       if (voiceNames && voiceNames.length === 1) name = voiceNames[0];
       else if (modId === defaultModId) name = 'Default moderator';
-      else if (modId === topicModId) name = 'Topic';
       else name = 'Mod (' + (modId || '').slice(0, 8) + ')';
     }
     return { id: modId, name };
@@ -71,7 +67,7 @@ function resolveMod(modValue) {
   return byName ? byName.id : defaultModId;
 }
 
-import { getRecentForDirector, getRecentForClaimExtraction, resetClaimBuffer, reset as resetDirectorBuffer, getLog, onLogAppend, updateEntry, removeEntry, appendTopicEntry, append } from './conversationLog.js';
+import { getRecentForDirector, getRecentForClaimExtraction, resetClaimBuffer, reset as resetDirectorBuffer, getLog, onLogAppend, updateEntry, removeEntry, appendTopicEntry, append, filterMessagesForFactCheck } from './conversationLog.js';
 import { getFactCheck, getClaimExtraction, getFactCheckClaim, getDirectorSuggestion, getModeratorResponse, getTopicUpdate } from './modditClient.js';
 import { getSearchContext, getVideoSearchResults, getLatestVideoFromChannel, getYouTubeVideoTitle } from './searchClient.js';
 import { playLocalMp3 } from './ttsPlayer.js';
@@ -298,8 +294,9 @@ onLogAppend((entry) => {
   const minLen = config.claims?.autoExtractMinLineLength ?? 0;
   if (autoClaimExtractionEnabled && minLen > 0 && entry.text.length > minLen) {
     const messages = getRecentForClaimExtraction();
-    if (messages.length > 0) {
-      getClaimExtraction(messages).then(({ claims, error }) => {
+    const filtered = filterMessagesForFactCheck(messages);
+    if (filtered.length > 0) {
+      getClaimExtraction(filtered).then(({ claims, error }) => {
         if (error) return;
         const list = claims ?? [];
         if (list.length > 0) {
@@ -363,12 +360,13 @@ const server = http.createServer((req, res) => {
     req.on('data', (chunk) => { body += chunk; });
     req.on('end', () => {
       const messages = getRecentForDirector();
-      if (messages.length === 0) {
+      const filtered = filterMessagesForFactCheck(messages);
+      if (filtered.length === 0) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'No conversation yet to fact-check.' }));
         return;
       }
-      getFactCheck(messages).then(({ result, error }) => {
+      getFactCheck(filtered).then(({ result, error }) => {
         if (result) pushFactCheck(result);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ result: result ?? null, error: error ?? null }));
@@ -405,12 +403,13 @@ const server = http.createServer((req, res) => {
   }
   if (url === '/claims/extract' && req.method === 'POST') {
     const messages = getRecentForClaimExtraction();
-    if (messages.length === 0) {
+    const filtered = filterMessagesForFactCheck(messages);
+    if (filtered.length === 0) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ claims: [], error: 'No conversation yet.' }));
       return;
     }
-    getClaimExtraction(messages).then(({ claims, error }) => {
+    getClaimExtraction(filtered).then(({ claims, error }) => {
       resetClaimBuffer();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ claims: claims ?? [], error: error ?? null }));

@@ -234,6 +234,16 @@ export function getRecentForClaimExtraction() {
   }));
 }
 
+/**
+ * Exclude join/part (Voice) and AI response lines from messages before fact-check or claim extraction.
+ * @param {Array<{ speaker: string, text: string, timestamp?: string }>} messages
+ * @returns {Array<{ speaker: string, text: string, timestamp?: string }>}
+ */
+export function filterMessagesForFactCheck(messages) {
+  if (!Array.isArray(messages)) return [];
+  return messages.filter((m) => m?.speaker !== 'Voice' && m?.speaker !== 'AI');
+}
+
 /** Clear the claim buffer after extraction so next run only sees new conversation. */
 export function resetClaimBuffer() {
   claimBuffer.length = 0;
