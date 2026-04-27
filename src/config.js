@@ -85,10 +85,10 @@ export const config = {
      * modId is optional; when missing, MODERATOR_MOD_ID (env or default) is used for getModeratorResponse.
      */
     voices: {
-      Immy: { voiceId: 'syeFW5TCGfY8Hs5y9tPE', modId: '18628a72-2d18-4448-b589-e57a619fb996' },
-      Khi: { voiceId: 'Iq6TL7fCl0jSeSIIgGEG', modId: '1c45d7e7-0130-4083-ad27-976a6fa5a584' },
-      Wrasslin: { voiceId: 'LG95yZDEHg6fCZdQjLqj', modId: '9dc96816-cce7-44c6-84a9-08d0a87f01a0' },
-      Canadude: { voiceId: 'https://elevenlabs.io/app/voice-library?voiceId=eadgjmk4R4uojdsheG9t' },
+      Immy: { voiceId: 'syeFW5TCGfY8Hs5y9tPE' },
+      Khi: { voiceId: 'Iq6TL7fCl0jSeSIIgGEG' },
+      Wrasslin: { voiceId: 'LG95yZDEHg6fCZdQjLqj',},
+      Canadude: { voiceId: 'eadgjmk4R4uojdsheG9t' },
       Elise: { voiceId: 'sjcPVAfTExhVDMuP2Myl'},
       Ajit: { voiceId: 'pzxut4zZz4GImZNlqQ3H' },
       Rachel: { voiceId: '21m00Tcm4TlvDq8ikWAM' },
@@ -99,7 +99,7 @@ export const config = {
       Minerva: { voiceId: '0E0gsPZaYRcRuLRIO5iU' },
       OldMan: { voiceId: 'NOpBlnGInO9m6vDvFkFC' },
       OldMan2: { voiceId: 'SGfyGfQJBs0O7iPKEkB5' },
-      Donut: { voiceId: 'USEQXnsXRJlw2k9LUzG4', modId: '523803a8-8f32-40a7-9fc8-5fe168632c90', store: true },
+      Donut: { voiceId: 'USEQXnsXRJlw2k9LUzG4' },
     },
   },
   /** Optional: modId -> display name for "Use Mod" dropdown. Omitted entries get derived names (voice name or "Mod (id)"). */
@@ -107,6 +107,7 @@ export const config = {
     '1c45d7e7-0130-4083-ad27-976a6fa5a584': 'Default moderator',
     '18628a72-2d18-4448-b589-e57a619fb996': 'Immy',
     '5aa2a339-3c73-4e06-a53a-2aa8a82f2b07': 'Khi',
+    '5a310e60-e25f-4781-aafb-88a4ef0db8e5': 'Canadude',
     '9dc96816-cce7-44c6-84a9-08d0a87f01a0': 'Wrestling Announcer',
     '523803a8-8f32-40a7-9fc8-5fe168632c90': 'Princess Donut',
   },

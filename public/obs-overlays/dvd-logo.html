@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DVD Logo — OBS Overlay</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+    #logo {
+      position: absolute;
+      width: 320px;
+      height: 260px;
+      object-fit: contain;
+    }
+  </style>
+</head>
+<body>
+  <img id="logo" src="./logo.png" alt="Logo" />
+  <script>
+    (function () {
+      const img = document.getElementById('logo');
+      const speed = 1;
+      let x = 0;
+      let y = 0;
+      let vx = speed;
+      let vy = speed;
+
+      function getBounds() {
+        return { w: window.innerWidth, h: window.innerHeight };
+      }
+
+      function start() {
+        const b = getBounds();
+        const iw = img.offsetWidth;
+        const ih = img.offsetHeight;
+        x = Math.max(0, (b.w - iw) / 2);
+        y = Math.max(0, (b.h - ih) / 2);
+      }
+
+      function tick() {
+        const b = getBounds();
+        const iw = img.offsetWidth;
+        const ih = img.offsetHeight;
+        x += vx;
+        y += vy;
+        if (x <= 0) { vx = -vx; x = 0; }
+        if (x >= b.w - iw) { vx = -vx; x = b.w - iw; }
+        if (y <= 0) { vy = -vy; y = 0; }
+        if (y >= b.h - ih) { vy = -vy; y = b.h - ih; }
+        img.style.left = x + 'px';
+        img.style.top = y + 'px';
+        requestAnimationFrame(tick);
+      }
+
+      start();
+      requestAnimationFrame(tick);
+    })();
+  </script>
+</body>
+</html>

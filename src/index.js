@@ -15,7 +15,7 @@ import { setConnection as setTTSConnection } from './ttsPlayer.js';
 import { startDirectorLoop, requestDirectorSuggestion } from './directorLoop.js';
 import { startSessionLog, getRecentForDirector, append, filterMessagesForFactCheck } from './conversationLog.js';
 import { getFactCheck } from './modditClient.js';
-import { startDashboard, loadVideoUrl } from './dashboard.js';
+import { startDashboard, loadVideoUrl, loadSessionVideoLog, getNextSessionTitle } from './dashboard.js';
 import { setVoiceChannel as setSoundboardChannel } from './soundboard.js';
 import { ensureGuildRoles, canRunCommands } from './permissions.js';
 
@@ -52,9 +52,12 @@ function doJoinChannel(voiceChannel) {
   setTTSConnection(connection);
   setSoundboardChannel(voiceChannel);
   startDirectorLoop();
-  const { logPath, captionPath } = startSessionLog();
+  const title = getNextSessionTitle();
+  const result = startSessionLog(undefined, title ? { title } : {});
+  const { logPath, captionPath, slug, resumed } = result;
   console.log('Conversation log:', logPath);
   console.log('Caption file (SRT):', captionPath);
+  if (resumed && slug) loadSessionVideoLog(slug);
   return connection;
 }
 

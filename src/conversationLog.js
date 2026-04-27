@@ -31,6 +31,29 @@ let sessionStartMs = 0;
 /** End time (ms from session start) of last caption written, for SRT continuity. */
 let lastCaptionEndMs = 0;
 
+/** Current session title (if set). Used for display and for optional header in log file. */
+let currentSessionTitle = null;
+/** Current session slug (basename without extension). Used for filenames and video log path. */
+let currentSessionSlug = null;
+
+/**
+ * Derive a filesystem-safe slug from a title. Lowercase, replace spaces/special with -, collapse dashes, trim.
+ * @param {string} title - Human-readable session title
+ * @returns {string | null} Slug or null if title is empty/falsy
+ */
+export function titleToSlug(title) {
+  if (title == null || typeof title !== 'string') return null;
+  const t = title.trim();
+  if (!t) return null;
+  const slug = t
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  return slug || null;
+}
+
 /** Format ms since session start as SRT timestamp HH:MM:SS,mmm */
 function msToSrt(ms) {
   const h = Math.floor(ms / 3600000);
@@ -45,24 +68,149 @@ function msToSrt(ms) {
 }
 
 /**
- * Start a new session log file and SRT caption file. Call when the bot joins voice so each run has a unique file.
+ * Start a new session log file and SRT caption file, or resume an existing one if the same title/slug exists.
+ * Call when the bot joins voice.
  * @param {string} [logDir='logs'] - Directory for log files
- * @returns {{ logPath: string, captionPath: string }} Paths to the new log and caption files
+ * @param {{ title?: string }} [options] - Optional session title; if provided and logs/<slug>.log exists, that session is loaded (resume).
+ * @returns {{ logPath: string, captionPath: string, slug: string, resumed?: boolean }} Paths and slug; resumed true if existing session was loaded
  */
-export function startSessionLog(logDir = 'logs') {
+export function startSessionLog(logDir = 'logs', options = {}) {
+  const title = typeof options.title === 'string' ? options.title.trim() : null;
+  fs.mkdirSync(logDir, { recursive: true });
+
+  if (title) {
+    const slug = titleToSlug(title);
+    if (slug) {
+      const existingLogPath = path.join(logDir, `${slug}.log`);
+      if (fs.existsSync(existingLogPath)) {
+        loadSessionLog(logDir, slug);
+        currentSessionTitle = title;
+        currentSessionSlug = slug;
+        return { logPath: sessionLogPath, captionPath: sessionCaptionPath, slug, resumed: true };
+      }
+    }
+  }
+
   log.length = 0;
   directorBuffer.length = 0;
   claimBuffer.length = 0;
-  fs.mkdirSync(logDir, { recursive: true });
   sessionStartMs = Date.now();
   lastCaptionEndMs = 0;
-  const safeDate = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const base = `conversation-${safeDate}`;
+  currentSessionTitle = title || null;
+
+  let base;
+  if (title) {
+    const slug = titleToSlug(title);
+    base = slug || `conversation-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}`;
+  } else {
+    const safeDate = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    base = `conversation-${safeDate}`;
+  }
+  currentSessionSlug = base;
   sessionLogPath = path.join(logDir, `${base}.log`);
   sessionCaptionPath = path.join(logDir, `${base}.srt`);
   const header = `Session started ${new Date().toISOString()}\n`;
   fs.appendFileSync(sessionLogPath, header, 'utf8');
-  return { logPath: sessionLogPath, captionPath: sessionCaptionPath };
+  return { logPath: sessionLogPath, captionPath: sessionCaptionPath, slug: base, resumed: false };
+}
+
+/**
+ * Load an existing session from disk by slug. Populates in-memory log and sets session paths so new appends go to the same files.
+ * @param {string} logDir - Directory containing the .log file
+ * @param {string} slug - Session slug (filename without .log)
+ * @returns {{ logPath: string, captionPath: string } | { error: string }} Paths on success, or error if file not found/invalid
+ */
+export function loadSessionLog(logDir, slug) {
+  const logPath = path.join(logDir, `${slug}.log`);
+  if (!fs.existsSync(logPath)) {
+    return { error: 'Session log not found' };
+  }
+  const captionPath = path.join(logDir, `${slug}.srt`);
+  let content;
+  try {
+    content = fs.readFileSync(logPath, 'utf8');
+  } catch (err) {
+    return { error: err.message || 'Failed to read log file' };
+  }
+  const lines = content.split(/\r?\n/).filter((line) => line.length > 0);
+  const headerMatch = lines[0] && lines[0].match(/^Session started (.+)$/);
+  if (headerMatch) {
+    try {
+      sessionStartMs = new Date(headerMatch[1].trim()).getTime();
+    } catch (_) {
+      sessionStartMs = Date.now();
+    }
+  } else {
+    sessionStartMs = Date.now();
+  }
+
+  log.length = 0;
+  directorBuffer.length = 0;
+  claimBuffer.length = 0;
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    const idx = line.indexOf(': ');
+    if (idx === -1) continue;
+    const speaker = line.slice(0, idx).trim();
+    const text = line.slice(idx + 2).trim();
+    const timestamp = sessionStartMs + (i - 1) * 1000;
+    const entry = { speaker, text, timestamp };
+    log.push(entry);
+    directorBuffer.push(entry);
+    claimBuffer.push(entry);
+  }
+
+  lastCaptionEndMs = 0;
+  if (fs.existsSync(captionPath)) {
+    try {
+      const srtContent = fs.readFileSync(captionPath, 'utf8');
+      const blocks = srtContent.split(/\n\n+/);
+      for (let b = blocks.length - 1; b >= 0; b--) {
+        const block = blocks[b];
+        const timeMatch = block.match(/\d+\n(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})/);
+        if (timeMatch) {
+          lastCaptionEndMs = srtTimeToMs(timeMatch[2]);
+          break;
+        }
+      }
+    } catch (_) {}
+  }
+
+  sessionLogPath = logPath;
+  sessionCaptionPath = captionPath;
+  currentSessionSlug = slug;
+  return { logPath, captionPath };
+}
+
+/**
+ * Return current session info for dashboard and video log path.
+ * @returns {{ slug: string | null, logPath: string | null, captionPath: string | null, title: string | null, startedAt: number } | null}
+ */
+export function getCurrentSession() {
+  if (!sessionLogPath) return null;
+  return {
+    slug: currentSessionSlug,
+    logPath: sessionLogPath,
+    captionPath: sessionCaptionPath,
+    title: currentSessionTitle,
+    startedAt: sessionStartMs,
+  };
+}
+
+/**
+ * Set the display title for the current session (e.g. from dashboard). Does not change slug or filenames.
+ * @param {string | null} title - Display title or null to clear
+ */
+export function setCurrentSessionTitle(title) {
+  currentSessionTitle = typeof title === 'string' ? title.trim() || null : null;
+}
+
+/** Parse SRT timestamp "HH:MM:SS,mmm" to ms from zero. */
+function srtTimeToMs(s) {
+  const [time, frac] = s.split(',');
+  const [h, m, sec] = time.split(':').map(Number);
+  const ms = (frac !== undefined ? parseInt(frac, 10) : 0);
+  return (h * 3600 + m * 60 + sec) * 1000 + ms;
 }
 
 /**

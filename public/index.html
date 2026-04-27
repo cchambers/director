@@ -785,6 +785,65 @@
       margin: 0;
     }
 
+    .session-bar {
+      flex-shrink: 0;
+      padding: 0.5rem 1rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      font-size: 0.8rem;
+    }
+    .session-current {
+      margin-bottom: 0.5rem;
+    }
+    .session-label {
+      color: var(--muted);
+      margin-right: 0.35rem;
+    }
+    .session-value {
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .session-title-row {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+    .session-title-input {
+      flex: 1;
+      padding: 0.35rem 0.5rem;
+      font-size: 0.8rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      color: var(--text);
+    }
+    .session-past-details {
+      font-size: 0.75rem;
+    }
+    .session-past-details summary {
+      cursor: pointer;
+      color: var(--muted);
+    }
+    .session-past-list {
+      margin-top: 0.35rem;
+      max-height: 8rem;
+      overflow-y: auto;
+    }
+    .session-past-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      padding: 0.25rem 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .session-past-item:last-child {
+      border-bottom: none;
+    }
+    .session-past-item .session-load-btn {
+      flex-shrink: 0;
+    }
+
     .log-entries {
       display: flex;
       flex-direction: column-reverse;
@@ -1148,8 +1207,21 @@
         <span>Conversation</span>
         <button type="button" class="btn primary" id="aiCommentBtn">AI Comment</button>
       </h2>
+      <div class="session-bar" id="sessionBar">
+        <div class="session-current" id="sessionCurrent">
+          <span class="session-label">Session:</span>
+          <span class="session-value" id="sessionValue">—</span>
+        </div>
+        <div class="session-title-row">
+          <input type="text" id="sessionTitleInput" placeholder="Session title (e.g. Episode 5)" class="session-title-input" />
+          <button type="button" class="btn secondary" id="sessionTitleBtn">Set title</button>
+        </div>
+        <details class="session-past-details">
+          <summary>Past sessions</summary>
+          <div class="session-past-list" id="sessionPastList">Loading…</div>
+        </details>
+      </div>
       <div class="column-scroll" id="scrollConversation">
-       
         <div class="log-entries" id="logEntries"></div>
         <div class="empty" id="emptyConversation">Conversation log will appear here once the bot is in voice. It updates
           live.</div>
@@ -1312,6 +1384,10 @@
     const scrollConversation = document.getElementById('scrollConversation');
     const logEntries = document.getElementById('logEntries');
     const emptyConversation = document.getElementById('emptyConversation');
+    const sessionValue = document.getElementById('sessionValue');
+    const sessionTitleInput = document.getElementById('sessionTitleInput');
+    const sessionTitleBtn = document.getElementById('sessionTitleBtn');
+    const sessionPastList = document.getElementById('sessionPastList');
     const aiCommentBtn = document.getElementById('aiCommentBtn');
     const contextMenu = document.getElementById('contextMenu');
     const contextMenuSpeak = document.getElementById('contextMenuSpeak');
@@ -1817,6 +1893,53 @@
       }).catch(() => { emptyConversation.textContent = 'Failed to load conversation.'; emptyConversation.hidden = false; });
     }
 
+    function updateSessionDisplay() {
+      fetch('/session').then((r) => r.json()).then((data) => {
+        const label = (data.title && data.title.trim()) ? data.title.trim() : (data.slug || '—');
+        sessionValue.textContent = label;
+        sessionTitleInput.value = (data.title && data.title.trim()) ? data.title.trim() : '';
+      }).catch(() => { sessionValue.textContent = '—'; });
+    }
+
+    function loadSessionsList() {
+      fetch('/sessions').then((r) => r.json()).then((data) => {
+        const sessions = data.sessions || [];
+        if (sessions.length === 0) {
+          sessionPastList.innerHTML = '<span class="empty">No past sessions.</span>';
+          return;
+        }
+        sessionPastList.innerHTML = sessions.map((s) => {
+          const dateStr = s.startedAt ? new Date(s.startedAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : s.slug;
+          return `<div class="session-past-item"><span title="${escapeHtml(s.slug)}">${escapeHtml(dateStr)} — ${escapeHtml(s.slug)}</span><button type="button" class="btn secondary session-load-btn" data-slug="${escapeHtml(s.slug)}">Load</button></div>`;
+        }).join('');
+        sessionPastList.querySelectorAll('.session-load-btn').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const slug = btn.dataset.slug;
+            if (!slug) return;
+            btn.disabled = true;
+            fetch('/session/load', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug }) })
+              .then((r) => r.json())
+              .then((res) => {
+                if (res.error) console.warn('Load session:', res.error);
+                else { loadConversation(); updateSessionDisplay(); }
+              })
+              .catch((err) => console.warn('Load session:', err))
+              .finally(() => { btn.disabled = false; });
+          });
+        });
+      }).catch(() => { sessionPastList.innerHTML = '<span class="empty">Failed to load.</span>'; });
+    }
+
+    sessionTitleBtn.addEventListener('click', () => {
+      const title = sessionTitleInput.value.trim();
+      sessionTitleBtn.disabled = true;
+      fetch('/session/title', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }) })
+        .then((r) => r.json())
+        .then((res) => { if (!res.error) updateSessionDisplay(); })
+        .catch(() => {})
+        .finally(() => { sessionTitleBtn.disabled = false; });
+    });
+
     function renderLogEntry(entry, index, timeStr) {
       const t = timeStr !== undefined ? timeStr : formatTime(entry.timestamp || 0);
       return `
@@ -1920,6 +2043,8 @@
       }).catch((err) => console.warn('AI Comment:', err)).finally(() => { aiCommentBtn.disabled = false; });
     });
     loadConversation();
+    updateSessionDisplay();
+    loadSessionsList();
 
     function renderVideoResults(results) {
       return results.map((r) => {
@@ -2177,6 +2302,18 @@
         const data = JSON.parse(e.data);
         if (data.type === 'logEntry' && data.entry) {
           appendLogEntry(data.entry);
+          return;
+        }
+        if (data.type === 'logReplaced' && Array.isArray(data.entries)) {
+          emptyConversation.hidden = data.entries.length > 0;
+          logEntries.innerHTML = data.entries.map((e, i) => `
+            <div class="log-entry" data-index="${i}" data-speaker="${escapeHtml(e.speaker || '')}" data-text="${escapeHtml((e.text || '').slice(0, 200))}" title="Double-click to edit">
+              <span class="log-speaker">${escapeHtml(e.speaker || '')}:</span><span class="log-text">${escapeHtml(e.text || '')}</span>
+              <div class="log-time">${formatTime(e.timestamp || 0)}</div>
+              ${logEntryActionsHtml(e)}
+            </div>
+          `).join('');
+          updateSessionDisplay();
           return;
         }
         if (data.type === 'claims' && Array.isArray(data.claims) && data.claims.length) {

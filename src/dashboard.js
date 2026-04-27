@@ -34,13 +34,14 @@ function getModsList() {
   const voices = getVoicesList();
   const modIds = new Set([defaultModId]);
   voices.forEach((v) => modIds.add(v.modId));
+  const customNames = config.moderatorMods && typeof config.moderatorMods === 'object' ? config.moderatorMods : {};
+  Object.keys(customNames).forEach((id) => modIds.add(id));
   const modIdToVoiceNames = new Map();
   voices.forEach((v) => {
     const names = modIdToVoiceNames.get(v.modId) || [];
     names.push(v.name);
     modIdToVoiceNames.set(v.modId, names);
   });
-  const customNames = config.moderatorMods && typeof config.moderatorMods === 'object' ? config.moderatorMods : {};
   const order = [defaultModId];
   [...modIds].forEach((id) => { if (!order.includes(id)) order.push(id); });
   return order.map((modId) => {
@@ -67,7 +68,7 @@ function resolveMod(modValue) {
   return byName ? byName.id : defaultModId;
 }
 
-import { getRecentForDirector, getRecentForClaimExtraction, resetClaimBuffer, reset as resetDirectorBuffer, getLog, onLogAppend, updateEntry, removeEntry, appendTopicEntry, append, filterMessagesForFactCheck } from './conversationLog.js';
+import { getRecentForDirector, getRecentForClaimExtraction, resetClaimBuffer, reset as resetDirectorBuffer, getLog, onLogAppend, updateEntry, removeEntry, appendTopicEntry, append, filterMessagesForFactCheck, getCurrentSession, loadSessionLog, setCurrentSessionTitle } from './conversationLog.js';
 import { getFactCheck, getClaimExtraction, getFactCheckClaim, getDirectorSuggestion, getModeratorResponse, getTopicUpdate } from './modditClient.js';
 import { getSearchContext, getVideoSearchResults, getLatestVideoFromChannel, getYouTubeVideoTitle } from './searchClient.js';
 import { playLocalMp3 } from './ttsPlayer.js';
@@ -181,6 +182,48 @@ function broadcastVideoQueue() {
   broadcast({ type: 'videoQueue', current: currentVideoUrl, queue: [...videoQueue] });
 }
 
+/** Title to use for the next /join (creates or resumes slug-based session). Cleared after use. */
+let nextSessionTitle = null;
+
+/** Get and clear the next-join title. Used by index.js when the bot joins. */
+export function getNextSessionTitle() {
+  const t = nextSessionTitle;
+  nextSessionTitle = null;
+  return t || null;
+}
+
+/** Persist video played log to current session's videos file (logs/<slug>.videos.json). No-op if no current session. */
+function writeSessionVideoLog() {
+  const session = getCurrentSession();
+  if (!session?.slug) return;
+  try {
+    const videosPath = path.join(LOG_DIR, `${session.slug}.videos.json`);
+    fs.writeFileSync(videosPath, JSON.stringify(videoPlayedLog, null, 0), 'utf8');
+  } catch (_) {}
+}
+
+/** Load video played log from logs/<slug>.videos.json into videoPlayedLog and broadcast. Exported for index.js when session is resumed on join. */
+export function loadSessionVideoLog(slug) {
+  const videosPath = path.join(LOG_DIR, `${slug}.videos.json`);
+  if (!fs.existsSync(videosPath)) {
+    videoPlayedLog.length = 0;
+    broadcast({ type: 'videoPlayedLog', played: [] });
+    return;
+  }
+  try {
+    const data = fs.readFileSync(videosPath, 'utf8');
+    const parsed = JSON.parse(data);
+    if (Array.isArray(parsed)) {
+      videoPlayedLog.length = 0;
+      parsed.forEach((e) => videoPlayedLog.push(e));
+      broadcast({ type: 'videoPlayedLog', played: [...videoPlayedLog] });
+    }
+  } catch (_) {
+    videoPlayedLog.length = 0;
+    broadcast({ type: 'videoPlayedLog', played: [] });
+  }
+}
+
 /**
  * Load a video URL in the dashboard viewer (broadcasts videoUrl over SSE). Call from Discord /video or dashboard UI.
  * @param {string} url - Full URL (e.g. https://youtu.be/xxx)
@@ -202,6 +245,7 @@ export function loadVideoUrl(url, opts = {}) {
     };
     videoPlayedLog.push(entry);
     broadcast({ type: 'videoPlayedLog', played: [...videoPlayedLog] });
+    writeSessionVideoLog();
     broadcast({ type: 'videoUrl', url: u });
     writeVideoQueueFile();
     broadcastVideoQueue();
@@ -561,6 +605,92 @@ const server = http.createServer((req, res) => {
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ removed: true }));
+    });
+    return;
+  }
+  if (url === '/session' && req.method === 'GET') {
+    const session = getCurrentSession();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(session != null ? session : {}));
+    return;
+  }
+  if (url === '/sessions' && req.method === 'GET') {
+    try {
+      const names = fs.readdirSync(LOG_DIR).filter((n) => n.endsWith('.log'));
+      const sessions = names.map((name) => {
+        const slug = name.slice(0, -4);
+        let startedAt = null;
+        try {
+          const firstLine = fs.readFileSync(path.join(LOG_DIR, name), 'utf8').split(/\r?\n/)[0] || '';
+          const m = firstLine.match(/^Session started (.+)$/);
+          if (m) startedAt = new Date(m[1].trim()).getTime();
+        } catch (_) {}
+        return { slug, filename: name, startedAt };
+      });
+      sessions.sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ sessions }));
+    } catch (err) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ sessions: [] }));
+    }
+    return;
+  }
+  if (url === '/session/load' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let payload;
+      try {
+        payload = body ? JSON.parse(body) : {};
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        return;
+      }
+      const slug = typeof payload.slug === 'string' ? payload.slug.trim() : '';
+      if (!slug) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Missing slug' }));
+        return;
+      }
+      const result = loadSessionLog(LOG_DIR, slug);
+      if (result.error) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: result.error }));
+        return;
+      }
+      loadSessionVideoLog(slug);
+      const entries = getLog();
+      broadcast({ type: 'logReplaced', entries });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, slug, logPath: result.logPath, captionPath: result.captionPath }));
+    });
+    return;
+  }
+  if (url === '/session/title' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let payload;
+      try {
+        payload = body ? JSON.parse(body) : {};
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        return;
+      }
+      const title = typeof payload.title === 'string' ? payload.title.trim() : null;
+      const session = getCurrentSession();
+      if (session) {
+        setCurrentSessionTitle(title ?? '');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, title: getCurrentSession()?.title ?? null }));
+      } else {
+        nextSessionTitle = title || null;
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, nextTitle: nextSessionTitle }));
+      }
     });
     return;
   }
@@ -1071,6 +1201,30 @@ const server = http.createServer((req, res) => {
   if (url.startsWith('/video-viewer.html')) {
     const htmlPath = path.join(__dirname, '..', 'public', 'video-viewer.html');
     serveFile(res, htmlPath, 'text/html');
+    return;
+  }
+  if (url.startsWith('/obs-overlays/')) {
+    const pathname = url.split('?')[0];
+    const suffix = pathname.slice('/obs-overlays/'.length).replace(/^\/+/, '') || 'index.html';
+    if (suffix.includes('..')) {
+      res.writeHead(403);
+      res.end();
+      return;
+    }
+    const overlayPath = path.join(__dirname, '..', 'public', 'obs-overlays', suffix);
+    const ext = path.extname(suffix).toLowerCase();
+    const contentTypes = {
+      '.html': 'text/html',
+      '.htm': 'text/html',
+      '.png': 'image/png',
+      '.svg': 'image/svg+xml',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif',
+      '.webp': 'image/webp',
+    };
+    const contentType = contentTypes[ext] || 'application/octet-stream';
+    serveFile(res, overlayPath, contentType);
     return;
   }
   res.writeHead(404);
